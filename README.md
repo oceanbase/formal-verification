@@ -1,7 +1,7 @@
 # OceanBase Formal Verification
 
-This repository organizes proofs and formal specifications by OceanBase protocol.
+This repository collects correctness proofs and executable specifications for OceanBase protocols.
 
-| Protocol | Verification materials |
-| --- | --- |
-| [Arbitration](protocols/arbitration/) | Safety and liveness proof and a TLA+ model of arbitration with a data-less voting replica. Materials are planned. |
+| Protocol | Correctness question | Materials |
+| --- | --- | --- |
+| [Arbitration](protocols/arbitration/) | Can a replica that stores no redo help elect a leader while preserving committed entries across membership changes? When can writes resume after failures? | [Proof (PDF)](protocols/arbitration/proof/arbitration-proof.pdf) · [TLA+ specification](protocols/arbitration/tla/Arbitration.tla) · [TLC results](protocols/arbitration/tla/results.md) |
