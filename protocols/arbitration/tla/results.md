@@ -19,8 +19,6 @@ This specification models OceanBase PALF mechanisms (two-tuple log barrier, stal
 
 *\*`Arbitration4FP2C3.cfg` completed across a checkpoint resume (`38,944 s` prior attempt + `11,894 s` continuation = `50,838 s`, i.e., `14h 07m` cumulative attempt wall time; the continuation footer alone reports `03h 18m` and `921,423,476` post-recovery generated states).*
 
-The (3, 1, 3) run used 60 workers and finished at 05:38 Beijing time (UTC+8) on 2026-11-23 with an empty queue and exit code 0. It checked the eight state invariants below with [PrunedSpec](Pruned4F.tla).
-
 **Fingerprint collision estimates**: TLC uses 64-bit state fingerprints. For the five `Spec` safety runs, reported tool estimates (retained verbatim in [`completed-results.csv`](completed-results.csv)) range from `3.3E-6` (`Arbitration.cfg`) to `0.010` optimistic / `0.016` actual (`Arbitration4FP2C3.cfg`, continuation log); these are probabilistic tool estimates rather than observed collisions. The (3, 1, 3) run reported an actual-fingerprint estimate of 3.6%.
 
 **Checked safety invariants and properties (8 invariants + 3 monotonicity properties)**:
