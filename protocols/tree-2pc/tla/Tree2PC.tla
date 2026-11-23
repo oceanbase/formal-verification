@@ -54,10 +54,12 @@ Part == HostedInit
 
 InitActive == {Root} \cup SubCoord \cup DirectLeaf \cup SubLeaf
 
-ASSUME /\ Root \notin (SubCoord \cup DirectLeaf \cup SubLeaf \cup IdleLS)
+ASSUME /\ None \notin LS
+       /\ Root \notin (SubCoord \cup DirectLeaf \cup SubLeaf \cup IdleLS)
        /\ SubCoord \cap (DirectLeaf \cup SubLeaf \cup IdleLS) = {}
        /\ DirectLeaf \cap (SubLeaf \cup IdleLS) = {}
        /\ SubLeaf \cap IdleLS = {}
+       /\ Cardinality(SubCoord) <= 1
        /\ (SubLeaf # {}) => (SubCoord # {})
        /\ HostedInit \subseteq InitActive
        /\ HostedInit # {}
@@ -88,7 +90,7 @@ VARIABLES
   \* Asynchronous network and client/retry boundary (Section 5)
   msgs,           \* SUBSET Message: asynchronous message bag (duplicates/reorderings)
   clientState,    \* {"WAITING", "LOST", "PROBING", "DONE"}
-  retryVotes,     \* [parts[Root] -> {"pending","ok","no","prep_unknown"}]
+  retryVotes,     \* [parts[Root] -> {"pending","ok_tct","ok_tdt","no","prep_unknown"}]
   clientResp      \* {"PENDING", "COMMIT", "ABORT", "TRANS_UNKNOWN"}
 
 vars == <<state, parent, parts, incr, interm, votes, acks, votedUp,
@@ -169,8 +171,11 @@ ActiveEdges ==
 CommittedEdges ==
   {<<u, v>> \in LS \X LS : v \in Children(u)}
 
+SymGroup(S) ==
+  Permutations(S \cap HostedInit) \cup Permutations(S \ HostedInit)
+
 Symmetry ==
-  Permutations(DirectLeaf) \cup Permutations(SubLeaf) \cup Permutations(IdleLS)
+  SymGroup(DirectLeaf) \cup SymGroup(SubLeaf) \cup Permutations(IdleLS)
 
 -----------------------------------------------------------------------------
 (* Initial state *)
@@ -377,7 +382,6 @@ Handle2pcAbortRequest(n) ==
 
 HandleOrphan2pcCommitRequest(n) ==
   /\ state[n] \in {"COMMIT", "TOMBSTONE"}
-  /\ decision[n] = "COMMIT"
   /\ \E m \in msgs :
        /\ m.type = "Commit"
        /\ m.dst = n
@@ -390,7 +394,6 @@ HandleOrphan2pcCommitRequest(n) ==
 
 HandleOrphan2pcAbortRequest(n) ==
   /\ state[n] \in {"ABORT", "TOMBSTONE"}
-  /\ decision[n] = "ABORT"
   /\ \E m \in msgs :
        /\ m.type = "Abort"
        /\ m.dst = n
@@ -596,7 +599,8 @@ ProbeParticipant(c) ==
   /\ clientState = "PROBING"
   /\ c \in parts[Root]
   /\ retryVotes[c] = "pending"
-  /\ LET reply == IF state[c] = "COMMIT" \/ tdt[c] = "COMMIT" THEN "ok"
+  /\ LET reply == IF state[c] = "COMMIT" THEN "ok_tct"
+                  ELSE IF tdt[c] = "COMMIT" THEN "ok_tdt"
                   ELSE IF state[c] = "ABORT" \/ tdt[c] = "ABORT" THEN "no"
                   ELSE "prep_unknown"
      IN retryVotes' = [retryVotes EXCEPT ![c] = reply]
@@ -611,7 +615,7 @@ ResolveRetry ==
   /\ clientResp'  =
        IF parts[Root] = {} \/ (\E c \in parts[Root] : retryVotes[c] = "prep_unknown")
        THEN "TRANS_UNKNOWN"
-       ELSE IF \A c \in parts[Root] : retryVotes[c] = "ok"
+       ELSE IF \A c \in parts[Root] : retryVotes[c] \in {"ok_tct", "ok_tdt"}
             THEN "COMMIT"
             ELSE "ABORT"
   /\ UNCHANGED <<state, parent, parts, incr, interm, votes, acks, votedUp,
@@ -659,6 +663,18 @@ MsgOK(m) ==
      \/ /\ m.type = "PrepareResp"
         /\ m.status \in {"ok", "no", "prep_unknown"}
 
+XferOK ==
+  \/ inFlightXfer = None
+  \/ /\ inFlightXfer.phase \in {"Blocked", "Committed"}
+     /\ inFlightXfer.part \in Part
+     /\ inFlightXfer.src \in LS
+     /\ inFlightXfer.dst \in LS \ {inFlightXfer.src}
+     /\ inFlightXfer.snapState \in {"RUNNING", "PREPARE", "COMMIT", "ABORT"}
+     /\ inFlightXfer.snapDec \in {"none", "COMMIT", "ABORT"}
+
+OutsideCommitWindow ==
+  inFlightXfer = None \/ inFlightXfer.phase = "Blocked"
+
 TypeOK ==
   /\ state \in [LS -> States]
   /\ parent \in [LS -> LS \cup {None}]
@@ -677,9 +693,11 @@ TypeOK ==
   /\ tdt \in [LS -> {"none", "COMMIT", "ABORT"}]
   /\ decision \in [LS -> {"none", "COMMIT", "ABORT"}]
   /\ host \in [Part -> LS]
+  /\ XferOK
   /\ transfersUsed \in 0..MaxTransfers
   /\ \A m \in msgs : MsgOK(m)
   /\ clientState \in {"WAITING", "LOST", "PROBING", "DONE"}
+  /\ retryVotes \in [InitParts(Root) -> {"pending", "ok_tct", "ok_tdt", "no", "prep_unknown"}]
   /\ clientResp \in {"PENDING", "COMMIT", "ABORT", "TRANS_UNKNOWN"}
 
 \* Theorem 6.1(a): No two log streams ever reach conflicting terminal outcomes.
@@ -689,14 +707,16 @@ Agreement ==
   /\ \A u \in LS : tdt[u] # "none" => tdt[u] = decision[u]
 
 \* Lemma A.4 (Running-stream guard): Once any stream commits, no active stream
-\* remains in RUNNING or ABORT.
+\* remains in RUNNING or ABORT and no Abort message exists.
 CommitRequiresAllPrepared ==
   (\E u \in LS : decision[u] = "COMMIT") =>
-    (\A v \in LS : state[v] # "IDLE" => state[v] \in {"PREPARE", "COMMIT", "TOMBSTONE"})
+    /\ \A v \in LS : state[v] # "IDLE" => state[v] \in {"PREPARE", "COMMIT", "TOMBSTONE"}
+    /\ ~(\E m \in msgs : m.type = "Abort")
 
-\* Lemma A.3 (First-parent arborescence): Before any terminal decision exists,
+\* Lemma A.3 (First-parent arborescence): Whenever no stream has committed,
 \* every stream that entered PREPARE from RUNNING traces back to Root via
-\* acyclic first-parent pointers, even when `Children` contains cycles.
+\* acyclic first-parent pointers, even when `Children` contains cycles or
+\* other branches have aborted.
 RECURSIVE ReachesRootViaParent(_, _)
 ReachesRootViaParent(u, k) ==
   IF u = Root THEN TRUE
@@ -706,24 +726,31 @@ ReachesRootViaParent(u, k) ==
        /\ ReachesRootViaParent(parent[u], k - 1)
 
 FirstParentAcyclic ==
-  (\A u \in LS : decision[u] = "none") =>
+  (\A u \in LS : decision[u] # "COMMIT") =>
     (\A u \in LS : fromRunning[u] => ReachesRootViaParent(u, Cardinality(LS)))
 
-\* Theorems 4.1 & 4.3 (Transfer principle): Outside an active transfer commit,
-\* every partition host is active, and before any decision is reached every
-\* partition host lies in the dynamic graph rooted at Root.
+\* Theorems 4.1 & 4.3 and Lemma A.2 (Transfer principle & active-stream coverage):
+\* Every partition host is active; outside the [CommitTransferLogs, FinishTransfer)
+\* window, every active stream lies in Reachable(ActiveEdges, Root) or has already
+\* recorded a terminal decision; and terminal source snapshots migrate immediately
+\* on CommitTransferLogs.
 TransferPrinciple ==
   /\ \A p \in Part : state[host[p]] # "IDLE"
-  /\ (inFlightXfer = None /\ \A u \in LS : decision[u] = "none") =>
-       (\A p \in Part : host[p] \in Reachable(ActiveEdges, Root))
+  /\ OutsideCommitWindow =>
+       (\A u \in LS :
+          state[u] # "IDLE" =>
+            (u \in Reachable(ActiveEdges, Root) \/ decision[u] # "none"))
+  /\ (inFlightXfer # None /\ inFlightXfer.phase = "Committed"
+      /\ inFlightXfer.snapDec \in {"COMMIT", "ABORT"}) =>
+       decision[inFlightXfer.dst] = inFlightXfer.snapDec
 
 \* Theorem 2.2 & Theorem 6.1(b) (Minimum participant set & final-host agreement):
-\* Outside the mid-transfer commit window, every partition's host either lies in
-\* the Root-rooted participant graph or has already migrated Root's terminal
-\* decision; decided hosts always match Root; and once all contexts settle to
-\* TOMBSTONE every final host holds Root's terminal decision.
+\* Outside the [CommitTransferLogs, FinishTransfer) window, every partition's host
+\* either lies in the Root-rooted participant graph or has already migrated a
+\* terminal decision; decided hosts always match Root; and once all contexts
+\* settle to TOMBSTONE every final host holds Root's terminal decision.
 MinParticipantSet ==
-  /\ (inFlightXfer = None) =>
+  /\ OutsideCommitWindow =>
        (\A p \in Part :
           \/ host[p] \in Reachable(ActiveEdges, Root)
           \/ decision[host[p]] # "none")
@@ -734,13 +761,14 @@ MinParticipantSet ==
        (\A p \in Part : decision[host[p]] = decision[Root])
 
 \* Section 5.2-5.3 (Unknown-state non-fabrication): Client responses never
-\* fabricate COMMIT for an aborted transaction or ABORT for a committed one,
+\* fabricate COMMIT for an aborted transaction or ABORT without an aborted root,
 \* and TRANS_UNKNOWN arises only on a recreated coordinator after TDT eviction.
 ClientReplyConsistent ==
   /\ clientResp = "COMMIT" => decision[Root] = "COMMIT"
-  /\ clientResp = "ABORT"  => decision[Root] # "COMMIT"
+  /\ clientResp = "ABORT"  => decision[Root] = "ABORT"
   /\ clientResp = "TRANS_UNKNOWN" =>
        /\ AllowRetry
+       /\ state[Root] = "TOMBSTONE"
        /\ tdt[Root] = "none"
        /\ \E u \in LS : state[u] = "TOMBSTONE" /\ tdt[u] = "none"
 
@@ -811,8 +839,10 @@ NoCommitTombstone ==
   ~(decision[Root] = "COMMIT" /\ \A u \in LS : state[u] \in {"IDLE", "TOMBSTONE"})
 
 NoInternalAbortPropagation ==
-  ~(\E u \in LS \ {Root} :
-      /\ decision[u] = "ABORT"
+  ~(\E u \in DOMAIN votes[Root] :
+      /\ fromRunning[Root]
+      /\ votes[Root][u] = "no"
+      /\ tdt[u] = "ABORT"
       /\ decision[Root] = "ABORT"
       /\ state[Root] = "TOMBSTONE")
 
@@ -839,14 +869,19 @@ NoTransferInCommit ==
 NoCircularPrepare ==
   ~(\E u, v \in LS \ {Root} :
       /\ u # v
-      /\ v \in Children(u)
-      /\ u \in Children(v)
+      /\ fromRunning[u] /\ fromRunning[v]
+      /\ v \in Children(u) /\ u \in Children(v)
+      /\ parent[u] # v
+      /\ MsgPrepareReq(v, u) \in msgs
+      /\ MsgPrepareReq(u, v) \in msgs
+      /\ MsgPrepareResp(u, v, "ok") \in msgs
       /\ decision[Root] = "COMMIT"
       /\ state[Root] = "TOMBSTONE")
 
 NoTDTRetryCommit ==
-  ~(AllowRetry /\ clientState = "DONE" /\ clientResp = "COMMIT" /\ state[Root] = "TOMBSTONE"
-    /\ \E c \in parts[Root] : retryVotes[c] = "ok")
+  ~(AllowRetry /\ clientState = "DONE" /\ clientResp = "COMMIT"
+    /\ state[Root] = "TOMBSTONE" /\ tdt[Root] = "none"
+    /\ \E c \in parts[Root] : retryVotes[c] = "ok_tdt")
 
 NoTransUnknownOnRecreatedRetry ==
   ~(clientResp = "TRANS_UNKNOWN" /\ decision[Root] = "COMMIT")
@@ -857,13 +892,17 @@ NoAbortOnNewCoordUnknown ==
       /\ decision[Root] = "ABORT"
       /\ clientResp = "ABORT")
 
-\* Liveness witness (checked under LiveSpec): circular transfer graph commits
-\* and reclaims all contexts cleanly.
+\* Liveness witness (checked under LiveSpec): circular transfer graph exercises
+\* duplicate-prepare handling, commits, and reclaims all contexts cleanly.
 NoLiveCircularCommit ==
   ~(\E u, v \in LS \ {Root} :
       /\ u # v
-      /\ v \in Children(u)
-      /\ u \in Children(v)
+      /\ fromRunning[u] /\ fromRunning[v]
+      /\ v \in Children(u) /\ u \in Children(v)
+      /\ parent[u] # v
+      /\ MsgPrepareReq(v, u) \in msgs
+      /\ MsgPrepareReq(u, v) \in msgs
+      /\ MsgPrepareResp(u, v, "ok") \in msgs
       /\ decision[Root] = "COMMIT"
       /\ \A w \in LS : state[w] \in {"IDLE", "TOMBSTONE"})
 

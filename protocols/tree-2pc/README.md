@@ -12,6 +12,6 @@ Coalesced single-machine log streams serve as two-phase commit (2PC) participant
 
 ## TLA+ results
 
-A companion TLA+ model captures OceanBase's dynamic log-stream commit graph, three-step lock-synchronized partition transfers, circular duplicate-prepare handling, TCT reclamation, TDT expiry, and coordinator retries. TLC completed six safety checks and three liveness checks across bounded configurations with three to five log streams and up to two concurrent partition transfers. All nine runs finished without a property violation. The largest safety run explored 42,710,637 distinct states.
+A companion TLA+ model captures OceanBase's dynamic log-stream commit graph, three-step lock-synchronized partition transfers, circular duplicate-prepare handling, TCT reclamation, TDT expiry, and coordinator retries. TLC completed six safety checks and four liveness checks across bounded configurations with three to five log streams and up to two sequential partition transfers. All ten runs finished without a property violation. The largest safety run explored 42,754,064 distinct states.
 
 [Specification](tla/Tree2PC.tla) · [Results by configuration](tla/results.md) · [Run the checks](tla/README.md) · [BibTeX](artifact.bib)

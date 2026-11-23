@@ -46,27 +46,31 @@ maintains an in-flight Transaction Context Table (\(\mathrm{TCT}\)) entry
 and a bounded-retention Transaction Data Table (\(\mathrm{TDT}\)) entry,
 acting uniformly as coordinator to its children and participant to its
 recorded parent. For the protocol model below, Lemmas~\ref{lem:lock}
-and~\ref{lem:coverage} establish the transfer principle and
-minimum-participant-set coverage (Theorems~4.1, 4.3, and~2.2);
+and~\ref{lem:coverage} establish lock-synchronized transfer serialization and
+participant-graph coverage (corresponding to Theorems~4.1, 4.3, and~2.2);
 Theorem~6.1 proves atomic agreement, final-host consistency, and
 unknown-state retry non-fabrication across multi-hop and circular
 transfers; Theorem~6.2 proves deadlock-free termination under bounded
-transfers and weak fairness. Theorem numbering follows \emph{A
-Tree-Structured Two-Phase Commit Framework for OceanBase: Optimizing
-Scalability and Consistency} by Quanqing Xu, Chen Qian, and
-colleagues~\cite{tree2pc}.
+transfers and weak fairness. Theorem numbering aligns with the corresponding
+results in \emph{A Tree-Structured Two-Phase Commit Framework for OceanBase:
+Optimizing Scalability and Consistency} by Quanqing Xu, Chen Qian, and
+colleagues~\cite{tree2pc}, scoped to the protocol model below.
 
 \noindent\textsc{Theorem 2.2 (Minimum Participant Set).}
-\emph{Outside an in-flight transfer commit window, the coordinator-rooted
-participant graph covers the hosting log stream of every partition
-\(p \in \mathcal{P}\) that has not already migrated a terminal outcome.}
+\emph{Outside the commit window of an in-flight transfer, the
+coordinator-rooted participant graph covers every active log stream---and in
+particular the hosting log stream of every partition \(p \in \mathcal{P}\)---that
+has not already migrated a terminal outcome.}
 
 \noindent\textsc{Theorem 4.3 (Lock-Synchronized Transfer Principle).}
 \emph{For every partition transfer \(s \to d\) and every 2PC phase-log
-commit at \(s\), either (a)~the phase log precedes transfer-out and its
-state migrates to \(d\) upon transfer-in, or (b)~transfer-out precedes the
-phase log and \(d \in \Children(s)\) when that phase log commits (satisfying
-Theorem~4.1).}
+commit at \(s\), either (a)~the phase log precedes \emph{BeginTransfer}, so
+\emph{CommitTransferLogs} applies \(\dec[d] = \dec[s]\) if \(\dec[s] \neq
+\bot\) and otherwise leaves \(d\) active (\(\mathrm{state}[d] \neq \stIdle\))
+while \emph{FinishTransfer} records \(d \in \Children(s) \cup \interm[s]\),
+or (b)~\emph{CommitTransferLogs} precedes the phase log and \(d \in
+\Children(s)\) when that phase log commits (realizing the log-side obligation
+of Theorem~4.1).}
 
 \noindent\textsc{Theorem 6.1 (Safety).}
 \emph{In every reachable state of the protocol model:}
@@ -79,9 +83,9 @@ Theorem~4.1).}
     context (\(\stTomb\)) with no transfer mid-flight, every final host
     \(h(p)\) holds \(R\)'s terminal decision.}
   \item[\emph{(c)}] \emph{Retry non-fabrication. Client replies never
-    report \(\stCom\) without a committed root decision or \(\stAbt\) for a
-    committed transaction; \(\mathtt{trans\_unknown}\) is returned only by a
-    recreated coordinator after \(\mathrm{TDT}\) eviction.}
+    report \(\stCom\) without a committed root decision or \(\stAbt\) without
+    an aborted root decision; \(\mathtt{trans\_unknown}\) is returned only by
+    a recreated coordinator after \(\mathrm{TDT}\) eviction.}
 \end{enumerate}
 
 \subsection*{Protocol premises}
@@ -106,7 +110,8 @@ stream \(u \in \mathcal{L}\) maintains:
 \stPrep,\allowbreak \stCom,\allowbreak \stAbt,\allowbreak \stTomb\}\),
 initially \(\stRun\) on \(I_0\) and \(\stIdle\) on \(\mathcal{L} \setminus I_0\);
 (ii)~first recorded parent \(\pi[u] \in \mathcal{L} \cup \{\bot\}\)
-(initially \(\bot\));
+(initially \(\bot\)) and upward-vote flag \(\mathit{votedUp}[u] \in
+\{\mathsf{false},\allowbreak \mathsf{true}\}\) (initially \(\mathsf{false}\));
 (iii)~persisted child sets \(\parts[u] = \parts_0[u]\) and \(\incr[u]\)
 (initially \(\varnothing\)), defining active phase children
 \(\Children(u) = \parts[u] \cup \incr[u]\), plus an in-stage transfer set
@@ -123,8 +128,8 @@ initially \(\bot\)).
 
 \textbf{Phase-log commit and circular prepare rule.} Every transition at
 \(u\) that persists a 2PC phase log (\(\stPrep\), \(\stCom\), or \(\stAbt\))
-executes \textsc{LogCommit} (Algorithm~3 of~\cite{tree2pc}): it requires
-\(\neg\blocked[u]\) under the per-transaction lock \(\mathit{lock}_T[u]\)
+executes \textsc{LogCommit} (Algorithm~3 of~\cite{tree2pc}): under the
+per-transaction lock \(\mathit{lock}_T[u]\), it checks \(\neg\blocked[u]\)
 and atomically merges \(\incr[u] := \incr[u] \cup \interm[u]\) and
 \(\interm[u] := \varnothing\).
 \emph{Prepare:} When \(R\) initiates commit in \(\stRun\) (or \(u \neq R\)
@@ -141,47 +146,53 @@ without waiting on \(\Children(u)\).
 have \(\mathit{votes}[u][c] = \mathtt{ok}\) (\(\mathrm{AllVotesOk}(u)\)),
 root \(R\) runs \textsc{LogCommit}, sets \(\mathrm{state}[R] := \dec[R] :=
 \tdt[R] := \stCom\), and sends \(\mathrm{Commit}(R, c)\) to
-\(\Children(R)\), whereas \(u \neq R\) remains in \(\stPrep\) and sends
-\(\mathrm{PrepareResp}(u, \pi[u], \mathtt{ok})\). If some
-\(c \in \Children(u)\) votes \(\mathtt{no}\) or \(\mathtt{prep\_unk}\),
+\(\Children(R)\), whereas \(u \neq R\) with \(\neg\mathit{votedUp}[u]\) and
+\(\pi[u] \neq \bot\) remains in \(\stPrep\), sets \(\mathit{votedUp}[u] :=
+\mathsf{true}\), and sends \(\mathrm{PrepareResp}(u, \pi[u], \mathtt{ok})\).
+If some \(c \in \Children(u)\) votes \(\mathtt{no}\) or \(\mathtt{prep\_unk}\),
 \(R\) analogously logs \(\stAbt\) and sends \(\mathrm{Abort}\), whereas
-\(u \neq R\) relays \(\mathtt{prep\_unk}\) (if present) or \(\mathtt{no}\)
-to \(\pi[u]\). A stream in \(\stRun\) with \(\neg\blocked[u]\) may also
-unilaterally execute \(\mathrm{InternalAbort}(u)\), logging \(\stAbt\),
-notifying \(\pi[u]\) if set, and sending \(\mathrm{Abort}\) to
-\(\Children(u)\).
+\(u \neq R\) with \(\neg\mathit{votedUp}[u]\) sets \(\mathit{votedUp}[u] :=
+\mathsf{true}\) and relays \(\mathtt{prep\_unk}\) (if present) or
+\(\mathtt{no}\) to \(\pi[u]\). A stream in \(\stRun\) with \(\neg\blocked[u]\)
+may also unilaterally execute \(\mathrm{InternalAbort}(u)\), running
+\textsc{LogCommit}, logging \(\stAbt\), notifying \(\pi[u]\) if set, and
+sending \(\mathrm{Abort}\) to \(\Children(u)\).
 \emph{Propagation and cleanup:} Receiving \(\mathrm{Commit}(p, u)\) (for
 \(u \neq R\)) or \(\mathrm{Abort}(p, u)\) in \(\{\stRun, \stPrep\}\) with
 \(\neg\blocked[u]\) runs \textsc{LogCommit}, records \(\pi[u]\) if unset,
 sets \(\mathrm{state}[u] := \dec[u] := \tdt[u] := \stCom\) (resp.\
 \(\stAbt\)), forwards the decision to \(\Children(u)\), and replies
-\(\mathrm{Ack}(u, p)\); already-decided streams in \(\{\stCom, \stAbt,
-\stTomb\}\) reply \(\mathrm{Ack}(u, p)\) directly. Once all
-\(c \in \Children(u)\) acknowledge (\(\mathrm{AllAcked}(u)\)) and
-\(\neg\blocked[u]\), \(\mathrm{ForgetCtx}(u)\) reclaims \(\mathrm{TCT}\) by
-setting \(\mathrm{state}[u] := \stTomb\).
+\(\mathrm{Ack}(u, p)\); streams in \(\{\stCom, \stTomb\}\) (for
+\(\mathrm{Commit}\)) or \(\{\stAbt, \stTomb\}\) (for \(\mathrm{Abort}\))
+reply \(\mathrm{Ack}(u, p)\) directly. Once all \(c \in \Children(u)\)
+acknowledge (\(\mathrm{AllAcked}(u)\)) and \(\neg\blocked[u]\),
+\(\mathrm{ForgetCtx}(u)\) reclaims \(\mathrm{TCT}\) by setting
+\(\mathrm{state}[u] := \stTomb\).
 
 \textbf{Lock-synchronized partition transfer (Algorithms~2 and~3).}
-Migrating partition \(p\) from \(s = h(p)\) (with \(\mathrm{state}[s] \in
-\{\stRun,\allowbreak \stPrep,\allowbreak \stCom,\allowbreak \stAbt\}\)) to
-\(d \in \mathcal{L} \setminus \{s\}\) executes in three steps:
+Transfers execute sequentially (at most one transfer in flight across the
+transaction at a time). Migrating partition \(p\) from \(s = h(p)\) (with
+\(\mathrm{state}[s] \in \{\stRun,\allowbreak \stPrep,\allowbreak
+\stCom,\allowbreak \stAbt\}\)) to \(d \in \mathcal{L} \setminus \{s\}\)
+executes in three steps:
 (1)~\emph{BeginTransfer:} acquire \(\mathit{lock}_T[s]\) (requiring
 \(\neg\blocked[s]\)), set \(\blocked[s] := \mathsf{true}\), snapshot
 \((S_{\mathrm{snap}}, D_{\mathrm{snap}}) = (\mathrm{state}[s], \dec[s])\),
 and release \(\mathit{lock}_T[s]\);
 (2)~\emph{CommitTransferLogs:} atomically commit \texttt{transfer-out} on
 \(s\) and \texttt{transfer-in} on \(d\), setting \(h(p) := d\) and merging
-\((S_{\mathrm{snap}}, D_{\mathrm{snap}})\) into \(d\) by destination-wins
-monotonicity~\cite[\S5.3]{tree2pc}---if \(D_{\mathrm{snap}} \in
-\{\stCom,\allowbreak \stAbt\}\) and \(\mathrm{state}[d] \in
-\{\stIdle,\allowbreak \stRun,\allowbreak \stPrep\}\), \(d\) runs
-\textsc{LogCommit}, adopts \(D_{\mathrm{snap}}\) in
+\((S_{\mathrm{snap}}, D_{\mathrm{snap}})\) into \(d\)~\cite[\S5.3]{tree2pc}---if
+\(D_{\mathrm{snap}} \in \{\stCom,\allowbreak \stAbt\}\) and
+\(\mathrm{state}[d] \in \{\stIdle,\allowbreak \stRun,\allowbreak \stPrep\}\),
+\(d\) runs \textsc{LogCommit}, adopts \(D_{\mathrm{snap}}\) in
 \((\mathrm{state}, \dec, \tdt)\), and forwards \(D_{\mathrm{snap}}\) to
 \(\Children(d)\); else if \(S_{\mathrm{snap}} = \stPrep\) and
 \(\mathrm{state}[d] = \stIdle\), \(d\) enters \(\stPrep\) with
-\(\pi[d] := s\) and \(\Children(d) = \varnothing\); else if
-\(S_{\mathrm{snap}} = \stRun\) and \(\mathrm{state}[d] = \stIdle\), \(d\)
-enters \(\stRun\); otherwise \(d\) retains its state;
+\(\pi[d] := s\), \(\Children(d) = \varnothing\), and \(\mathit{votedUp}[d] :=
+\mathsf{true}\) (since \(s\) already prepared \(p\) and stages \(d\) in
+\(\interm[s]\) for the decision phase rather than \(s\)'s prepare vote set);
+else if \(S_{\mathrm{snap}} = \stRun\) and \(\mathrm{state}[d] = \stIdle\),
+\(d\) enters \(\stRun\); otherwise \(d\) retains its active state;
 (3)~\emph{FinishTransfer:} acquire \(\mathit{lock}_T[s]\), add
 \(\{d\} \setminus \Children(s)\) to \(\interm[s]\) if \(\mathrm{state}[s]
 \in \{\stRun,\allowbreak \stPrep\}\) (cf.~\cite[Alg.~1, lines 3, 6,
@@ -189,32 +200,36 @@ enters \(\stRun\); otherwise \(d\) retains its state;
 \(\mathit{lock}_T[s]\).
 
 \textbf{Context reclamation and retry resolution.}
-A leaf stream \(u \neq R\) in \(\stRun\) with no persisted children or
-in-stage transfers may lose its volatile uncommitted \(\mathrm{TCT}\) before
-preparing (\(\mathrm{state}[u] := \stTomb\), \(\dec[u] := \stAbt\),
+A leaf stream \(u \neq R\) in \(\stRun\) with \(\neg\blocked[u]\) and
+\(\parts[u] = \incr[u] = \interm[u] = \varnothing\) may lose its volatile
+uncommitted \(\mathrm{TCT}\) before preparing, rolling back uncommitted
+local state (\(\mathrm{state}[u] := \stTomb\), \(\dec[u] := \stAbt\),
 \(\tdt[u] := \bot\)). On any stream in \(\stTomb\), \(\mathrm{EvictTDT}(u)\)
 may clear \(\tdt[u] := \bot\) once the \(\mathrm{TDT}\) retention window
 expires. A \(\mathrm{PrepareReq}(p, u)\) arriving at \(u \in
 \{\stAbt,\allowbreak \stTomb\}\) replies \(\mathtt{no}\) if
 \(\mathrm{state}[u] = \stAbt\) or \(\tdt[u] = \stAbt\), \(\mathtt{ok}\) if
-\(\tdt[u] = \stCom\), and \(\mathtt{prep\_unk}\) otherwise. At the user boundary, a newly created root
-coordinator \(R\) that aborts Attempt~1 (even upon receiving
-\(\mathtt{prep\_unk}\)) returns \(\stAbt\). If the client reply after \(R\)
-reaches \(\stTomb\) is lost, a client retry recreates \(R\): if
-\(\tdt[R] \neq \bot\), \(R\) returns \(\tdt[R]\); otherwise \(R\) probes
-\(\parts[R]\), returning \(\mathtt{trans\_unknown}\) if \(\parts[R] =
+\(\tdt[u] = \stCom\), and \(\mathtt{prep\_unk}\) otherwise. At the user
+boundary, a newly created root coordinator \(R\) that aborts Attempt~1 (even
+upon receiving \(\mathtt{prep\_unk}\)) returns \(\stAbt\). If the client
+reply after \(R\) reaches \(\stTomb\) is lost, a client retry recreates
+\(R\): if \(\tdt[R] \neq \bot\), \(R\) returns \(\tdt[R]\); otherwise \(R\)
+probes \(\parts[R]\), returning \(\mathtt{trans\_unknown}\) if \(\parts[R] =
 \varnothing\) or any participant replies \(\mathtt{prep\_unk}\), \(\stCom\)
 if all reply \(\mathtt{ok}\), and \(\stAbt\) otherwise.
 
 \textbf{Scope and relation to OceanBase.} This report proves safety and
-liveness for the protocol model above. OceanBase~\cite[\S6.1]{tree2pc} adds
-two performance optimizations: (i)~\(\mathrm{Release}\) messages that
-release row locks after \(R\) collects all prepare acknowledgments while
-decoupling durable commit-log reclamation, and (ii)~D2PC phase-boundary
-flattening that attaches already-exposed downstream participants directly to
-\(R\). Neither optimization alters \(R\)'s commit point or shrinks the set
-of streams reachable from \(R\); a formal data-plane refinement is outside
-our scope.
+liveness for the protocol model above. Three modeling choices merit note:
+(i)~\textsc{LogCommit} checks \(\neg\blocked[u]\) inside
+\(\mathit{lock}_T[u]\) (closing the pre-lock check window in Algorithm~3,
+lines 2--3 of~\cite{tree2pc}) and serializes one transfer in flight at a
+time;
+(ii)~recreated-coordinator retries act after \(R\) reaches \(\stTomb\) and
+sample \(\parts[R]\) into a dedicated retry map (abstracting attempt-id
+correlation against delayed Attempt~1 messages);
+(iii)~OceanBase~\cite[\S6.1]{tree2pc} adds \(\mathrm{Release}\) lock-release
+messages and D2PC phase-boundary flattening, neither of which alters \(R\)'s
+commit point or shrinks the set of streams reachable from \(R\).
 \par
 \endgroup
 
@@ -247,12 +262,15 @@ Consider any completed transfer \(X\) of partition \(p\) from \(s\) to
   \item[\emph{(a)}] Throughout \(X\)'s interval from \emph{BeginTransfer} to
     \emph{FinishTransfer}, \(\mathrm{state}[s]\) and \(\dec[s]\) remain equal
     to \((S_{\mathrm{snap}}, D_{\mathrm{snap}})\).
-  \item[\emph{(b)}] If \(L\) precedes \(X\)'s \emph{BeginTransfer},
-    \emph{CommitTransferLogs} migrates at least \(L\)'s state to \(d\). If
-    \(X\)'s \emph{CommitTransferLogs} precedes \(L\) (so \(L\) logs a phase
-    transition while \(S_{\mathrm{snap}} \in \{\stRun,\allowbreak
-    \stPrep\}\)), then \(X\)'s \emph{FinishTransfer} also precedes \(L\) and
-    \(d \in \Children(s)\) immediately after \(L\).
+  \item[\emph{(b)}] If \(L\) precedes \(X\)'s \emph{BeginTransfer}, then
+    \emph{CommitTransferLogs} establishes \(\dec[d] = D_{\mathrm{snap}}\)
+    when \(D_{\mathrm{snap}} \neq \bot\) (assuming Agreement up to that step)
+    and otherwise leaves \(\mathrm{state}[d] \neq \stIdle\) (with \(d\)
+    entering \(S_{\mathrm{snap}}\) if \(d\) was \(\stIdle\)) while
+    \emph{FinishTransfer} records \(d \in \Children(s) \cup \interm[s]\). If
+    \(X\)'s \emph{CommitTransferLogs} precedes \(L\), then \(X\)'s
+    \emph{FinishTransfer} also precedes \(L\) and \(d \in \Children(s)\)
+    immediately after \(L\).
 \end{enumerate}
 \end{lemma}
 
@@ -262,25 +280,33 @@ Consider any completed transfer \(X\) of partition \(p\) from \(s\) to
 \(\blocked[s] := \mathsf{false}\). Every transition at \(s\) that mutates
 \(\mathrm{state}[s]\) or \(\dec[s]\) (\textsc{LogCommit}, local abort,
 volatile context loss, and \(\mathrm{ForgetCtx}\)) requires
-\(\neg\blocked[s]\); nor can another transfer overwrite \(s\) while \(X\) is
-in flight, as \(d \neq s\). This gives~(a) and forces every phase-log commit
-\(L\) at \(s\) to occur either strictly before \emph{BeginTransfer} or
-strictly after \emph{FinishTransfer} (ruling out Figure~\ref{fig:hazards}(a)).
+\(\neg\blocked[s]\), and single-in-flight serialization prevents any other
+transfer from targeting \(s\) during \(X\). This gives~(a) and forces every
+phase-log commit \(L\) at \(s\) to occur either strictly before
+\emph{BeginTransfer} or strictly after \emph{FinishTransfer} (ruling out
+Figure~\ref{fig:hazards}(a)).
 
 If \(L\) precedes \emph{BeginTransfer}, monotonicity of
 \((\mathrm{state}[s], \dec[s])\) ensures \((S_{\mathrm{snap}},
-D_{\mathrm{snap}})\) is at least as advanced as \(L\)'s target state, and
-\emph{CommitTransferLogs} merges \((S_{\mathrm{snap}}, D_{\mathrm{snap}})\)
-into \(d\). Conversely, if \emph{CommitTransferLogs} precedes \(L\), then
-\(L\) occurs after \emph{FinishTransfer}. Because \(L\) commits a phase log
-after \(X\), \(s\) had not yet reached a terminal decision during \(X\), so
-\(\mathrm{state}[s] = S_{\mathrm{snap}} \in \{\stRun,\allowbreak \stPrep\}\)
-at \emph{FinishTransfer}. Hence \emph{FinishTransfer} sets \(\interm[s] :=
-\interm[s] \cup (\{d\} \setminus \Children(s))\). Because no transition
-clears \(\parts[s]\) or \(\incr[s]\), the first \textsc{LogCommit} at \(s\)
-after \emph{FinishTransfer} merges \(\interm[s]\) into \(\incr[s]\),
-yielding \(d \in \Children(s)\) at \(L\) and at every subsequent phase log
-of \(s\). This proves~(b) and Theorem~4.3.
+D_{\mathrm{snap}})\) is at least as advanced as \(L\)'s target state. If
+\(D_{\mathrm{snap}} \in \{\stCom,\allowbreak \stAbt\}\),
+\emph{CommitTransferLogs} sets \(\dec[d] := D_{\mathrm{snap}}\) when
+\(\mathrm{state}[d] \in \{\stIdle,\allowbreak \stRun,\allowbreak \stPrep\}\),
+and if \(\mathrm{state}[d] \in \{\stCom,\allowbreak \stAbt,\allowbreak
+\stTomb\}\) then \(\dec[d] = D_{\mathrm{snap}}\) already holds by Agreement.
+If \(D_{\mathrm{snap}} = \bot\), then \(S_{\mathrm{snap}} \in
+\{\stRun,\allowbreak \stPrep\}\); \emph{CommitTransferLogs} moves an
+\(\stIdle\) destination into \(S_{\mathrm{snap}}\) and preserves
+\(\mathrm{state}[d] \neq \stIdle\) on an already-active destination (which
+remains governed by its existing branch in addition to \(s\)), while
+\emph{FinishTransfer} sets \(\interm[s] := \interm[s] \cup (\{d\} \setminus
+\Children(s))\). Conversely, if \emph{CommitTransferLogs} precedes \(L\),
+then \(L\) occurs after \emph{FinishTransfer} while \(S_{\mathrm{snap}} \in
+\{\stRun,\allowbreak \stPrep\}\), so \(d \in \Children(s) \cup \interm[s]\)
+after \emph{FinishTransfer}. Because \(\parts[s]\) and \(\incr[s]\) never
+shrink, the first \textsc{LogCommit} at \(s\) after \emph{FinishTransfer}
+merges \(\interm[s]\) into \(\incr[s]\), giving \(d \in \Children(s)\) at
+\(L\) and thereafter. This proves~(b) and Theorem~4.3.
 \end{proof}
 
 \subsection{Dynamic Participant-Graph Coverage}
@@ -291,154 +317,162 @@ graph with edges \(E_{\mathrm{act}} = \{(u, v) : v \in \parts[u] \cup
 R)\) denote the set of streams reachable from \(R\) by directed walks in
 \(G_{\mathrm{act}}\).
 
-\begin{lemma}[Host-tracking invariant]\label{lem:coverage}
+\begin{lemma}[Active-stream and host coverage]\label{lem:coverage}
 At every reachable state, \(\mathrm{state}[h(p)] \neq \stIdle\) for all
-\(p \in \mathcal{P}\). Moreover, whenever no transfer is between
-\emph{CommitTransferLogs} and \emph{FinishTransfer}, every \(p \in
-\mathcal{P}\) satisfies either \(h(p) \in \mathrm{Reach}(G_{\mathrm{act}},
-R)\) or \(\dec[h(p)] \neq \bot\).
+\(p \in \mathcal{P}\). Moreover, whenever no transfer is in the commit
+window between \emph{CommitTransferLogs} and \emph{FinishTransfer}, every
+active stream \(u \in \mathcal{L}\) (\(\mathrm{state}[u] \neq \stIdle\))
+satisfies either \(u \in \mathrm{Reach}(G_{\mathrm{act}}, R)\) or
+\(\dec[u] \neq \bot\).
 \end{lemma}
 
 \begin{proof}
-Initially, \(h_0(p) \in S_0 \subseteq I_0\); every \(u \in I_0\) starts in
-\(\stRun\) and lies in \(\mathrm{Reach}(G_{\mathrm{act}}, R)\) via
-\(\parts_0\). Because \(\mathrm{state}[u]\) never returns to \(\stIdle\) and
+Initially, \(\{u : \mathrm{state}[u] \neq \stIdle\} = I_0\), \(h_0(p) \in
+S_0 \subseteq I_0\), and \(I_0 \subseteq \mathrm{Reach}(G_{\mathrm{act}},
+R)\) via \(\parts_0\). Under all steps other than \emph{CommitTransferLogs},
+\(h(p)\) is unchanged, no \(\stIdle\) stream becomes active,
 \(E_{\mathrm{act}}\) only grows (as \textsc{LogCommit} moves elements from
-\(\interm[u]\) into \(\incr[u]\), preserving \(\parts[u] \cup \incr[u] \cup
-\interm[u]\)), \(\mathrm{Reach}(G_{\mathrm{act}}, R)\) and \(\{u : \dec[u]
-\neq \bot\}\) are both monotone under all non-transfer steps.
+\(\interm[u]\) into \(\incr[u]\)), and \(\{u : \dec[u] \neq \bot\}\) only
+grows. Notice \emph{BeginTransfer} preserves these sets, so the invariant
+continues to hold during its \texttt{Blocked} phase.
 
-Consider a transfer \(X\) moving \(p\) from \(s\) to \(d\). By the induction
-hypothesis prior to \emph{CommitTransferLogs}, \(\mathrm{state}[s] \in
-\{\stRun,\allowbreak \stPrep,\allowbreak \stCom,\allowbreak \stAbt\}\), and
-either \(s \in \mathrm{Reach}(G_{\mathrm{act}}, R)\) or \(\dec[s] \neq
-\bot\). At \emph{CommitTransferLogs}, \(h(p)\) becomes \(d\) and
-\(\mathrm{state}[d] \neq \stIdle\) holds in every branch of the state merge.
-At \emph{FinishTransfer}:
-(i)~if \(\mathrm{state}[s] \in \{\stCom,\allowbreak \stAbt\}\) (which covers
-the case \(\dec[s] \neq \bot\) by Lemma~\ref{lem:lock}(a)),
-\(D_{\mathrm{snap}} = \dec[s] \neq \bot\) was already applied to \(d\) at
-\emph{CommitTransferLogs}, so \(\dec[d] \neq \bot\);
-(ii)~if \(\mathrm{state}[s] \in \{\stRun,\allowbreak \stPrep\}\), then \(\dec[s] =
-\bot\), so \(s \in \mathrm{Reach}(G_{\mathrm{act}}, R)\) by induction, and
-\emph{FinishTransfer} ensures \(d \in \Children(s) \cup \interm[s]\),
-placing \((s, d) \in E_{\mathrm{act}}\) and hence \(d \in
-\mathrm{Reach}(G_{\mathrm{act}}, R)\). This proves Lemma~\ref{lem:coverage}
-and Theorem~2.2.
+Consider a transfer \(X\) moving \(p\) from \(s\) to \(d\). By
+single-in-flight serialization, no transfer is in the commit window just
+before \(X\)'s \emph{CommitTransferLogs}, so the induction hypothesis gives
+\(s \in \mathrm{Reach}(G_{\mathrm{act}}, R) \lor \dec[s] \neq \bot\).
+Because \emph{BeginTransfer} requires \(\mathrm{state}[s] \in
+\{\stRun,\allowbreak \stPrep,\allowbreak \stCom,\allowbreak \stAbt\}\)
+(excluding \(\stTomb\)), \(S_{\mathrm{snap}}\) belongs to those four states;
+if \(\mathrm{state}[d] = \stIdle\), one of the first three merge arms fires
+and sets \(\mathrm{state}[d] \neq \stIdle\), whereas if
+\(\mathrm{state}[d] \neq \stIdle\) the fourth arm retains it. Thus
+\(\mathrm{state}[h(p)] = \mathrm{state}[d] \neq \stIdle\). At
+\emph{FinishTransfer}, no stream other than \(d\) could have become active:
+(i)~if \(\dec[s] \neq \bot\), then \(S_{\mathrm{snap}} \in
+\{\stCom,\allowbreak \stAbt\}\) (as \(\stTomb\) cannot start \(X\)), so
+\(D_{\mathrm{snap}} = \dec[s] \neq \bot\) gave \(\dec[d] \neq \bot\) at
+\emph{CommitTransferLogs};
+(ii)~if \(\dec[s] = \bot\), then \(S_{\mathrm{snap}} \in
+\{\stRun,\allowbreak \stPrep\}\), \(s \in \mathrm{Reach}(G_{\mathrm{act}},
+R)\) by induction, and \emph{FinishTransfer} ensures \(d \in \Children(s)
+\cup \interm[s]\), placing \((s, d) \in E_{\mathrm{act}}\) and \(d \in
+\mathrm{Reach}(G_{\mathrm{act}}, R)\). Applying this to \(u = h(p)\) yields
+Theorem~2.2.
 \end{proof}
 
 \subsection{First-Parent Arborescence Under Circular Transfers}
 \label{sec:arborescence}
 Concurrent transfers can revisit earlier streams and create diamonds or
-directed cycles in \(\Children\)~\cite[\S4.6]{tree2pc}. To reason about
-cycles without collapsing subtrees heuristically, let \(V_{\mathrm{prep}}^{\mathrm{run}}\)
-be the set of streams that entered \(\stPrep\) from \(\stRun\) (via root
-initiation or first \(\mathrm{PrepareReq}\)), and let \(\tau_{\mathrm{prep}}(u)\)
-be the step index at which \(u \in V_{\mathrm{prep}}^{\mathrm{run}}\)
-entered \(\stPrep\).
+directed cycles in \(\Children\)~\cite[\S4.6]{tree2pc}. Let
+\(V_{\mathrm{prep}}^{\mathrm{run}}\) be the set of streams that entered
+\(\stPrep\) from \(\stRun\), let \(\tau_{\mathrm{prep}}(u)\) be the step
+index at which \(u \in V_{\mathrm{prep}}^{\mathrm{run}}\) did so, and let
+\(C_{\mathrm{prep}}(u)\) be the value of \(\Children(u)\) fixed at step
+\(\tau_{\mathrm{prep}}(u)\).
 
 \begin{lemma}[First-parent arborescence]\label{lem:arborescence}
-In every state with \(\forall x \in \mathcal{L},\, \dec[x] = \bot\):
+In every state with \(\forall x \in \mathcal{L},\, \dec[x] \neq \stCom\):
 for each \(u \in V_{\mathrm{prep}}^{\mathrm{run}} \setminus \{R\}\),
 \(\pi[u] \in V_{\mathrm{prep}}^{\mathrm{run}}\), \(\tau_{\mathrm{prep}}(\pi[u])
-< \tau_{\mathrm{prep}}(u)\), and \(u \in \Children(\pi[u])\). Consequently,
-\(T_\pi = (V_{\mathrm{prep}}^{\mathrm{run}}, \{(\pi[u], u) : u \in
-V_{\mathrm{prep}}^{\mathrm{run}} \setminus \{R\}\})\) is a directed tree
-rooted at \(R\).
+< \tau_{\mathrm{prep}}(u)\), and \(u \in C_{\mathrm{prep}}(\pi[u]) \subseteq
+\Children(\pi[u])\). Consequently, \(T_\pi = (V_{\mathrm{prep}}^{\mathrm{run}},
+\{(\pi[u], u) : u \in V_{\mathrm{prep}}^{\mathrm{run}} \setminus \{R\}\})\)
+is either empty or a directed tree rooted at \(R\).
 \end{lemma}
 
 \begin{proof}
 When \(u \in V_{\mathrm{prep}}^{\mathrm{run}} \setminus \{R\}\) transitions
-from \(\stRun\) to \(\stPrep\) at step \(\tau_{\mathrm{prep}}(u)\), it has
-\(\pi[u] = \bot\) (since \(\dec[u] = \bot\) precludes prior
-\(\mathrm{Commit}\)/\(\mathrm{Abort}\) or \(\stTomb\) actions on \(u\)),
-consumes some \(\mathrm{PrepareReq}(w, u) \in \mathit{msgs}\), and fixes
-\(\pi[u] := w\) permanently. Only streams entering \(\stPrep\) from
-\(\stRun\) emit \(\mathrm{PrepareReq}\) messages: a fresh \(\stIdle\) stream
-that inherits \(\stPrep\) via \emph{CommitTransferLogs} has
-\(\Children = \varnothing\) and emits none. Hence \(w\) emitted
-\(\mathrm{PrepareReq}(w, u)\) at step \(\tau_{\mathrm{prep}}(w) <
-\tau_{\mathrm{prep}}(u)\) with \(w \in V_{\mathrm{prep}}^{\mathrm{run}}\)
-and \(u \in \Children(w)\) (preserved thereafter). Because
-\(\tau_{\mathrm{prep}}\) strictly decreases along \(u \mapsto \pi[u]\) and
-\(V_{\mathrm{prep}}^{\mathrm{run}}\) is finite, iterating \(\pi\) from any
-\(u \in V_{\mathrm{prep}}^{\mathrm{run}}\) cannot cycle and terminates at
-the unique node in \(V_{\mathrm{prep}}^{\mathrm{run}}\) with \(\pi = \bot\),
-namely \(R\).
+from \(\stRun\) to \(\stPrep\) at step \(\tau_{\mathrm{prep}}(u)\), \(u\) was
+in \(\stRun\) prior to that step and therefore had never executed a
+\(\stCom\), \(\stAbt\), or \(\stTomb\) handler; hence \(\pi[u] = \bot\)
+immediately before \(\tau_{\mathrm{prep}}(u)\), and \(u\) consumes some
+\(\mathrm{PrepareReq}(w, u) \in \mathit{msgs}\) and fixes \(\pi[u] := w\)
+permanently. Only streams entering \(\stPrep\) from \(\stRun\) emit
+\(\mathrm{PrepareReq}\) messages (an \(\stIdle\) stream inheriting
+\(\stPrep\) via \emph{CommitTransferLogs} has \(\Children = \varnothing\) and
+emits none). Thus \(w\) emitted \(\mathrm{PrepareReq}(w, u)\) at step
+\(\tau_{\mathrm{prep}}(w) < \tau_{\mathrm{prep}}(u)\) with \(w \in
+V_{\mathrm{prep}}^{\mathrm{run}}\) and \(u \in C_{\mathrm{prep}}(w)
+\subseteq \Children(w)\). Because \(\tau_{\mathrm{prep}}\) strictly decreases
+along \(u \mapsto \pi[u]\) and \(V_{\mathrm{prep}}^{\mathrm{run}}\) is
+finite, iterating \(\pi\) from any \(u \in V_{\mathrm{prep}}^{\mathrm{run}}\)
+is acyclic and terminates at the sole node in
+\(V_{\mathrm{prep}}^{\mathrm{run}}\) with \(\pi = \bot\), namely \(R\).
 \end{proof}
 
 \subsection{Subtree Agreement and Running-Stream Guard}
 \label{sec:guard}
+For \(u \in V_{\mathrm{prep}}^{\mathrm{run}}\), write
+\(\mathrm{AllPrepVotesOk}(u)\) when every \(c \in C_{\mathrm{prep}}(u)\) has
+emitted \(\mathrm{PrepareResp}(c, u, \mathtt{ok}) \in \mathit{msgs}\).
+
 \begin{lemma}[Commit completeness]\label{lem:guard}
-Suppose \(\forall x \in \mathcal{L},\, \dec[x] = \bot\),
+Suppose \(\forall x \in \mathcal{L},\, \dec[x] \neq \stCom\),
 \(\mathrm{state}[R] = \stPrep\), and \(\mathrm{AllVotesOk}(R)\) holds. Then:
 \begin{enumerate}
-  \item[\emph{(a)}] \(\mathrm{AllVotesOk}(u)\) holds for every
+  \item[\emph{(a)}] \(\mathrm{AllPrepVotesOk}(u)\) holds for every
     \(u \in V_{\mathrm{prep}}^{\mathrm{run}}\).
   \item[\emph{(b)}] Every stream \(u \in \mathcal{L}\) that has ever been in
     \(\stRun\) belongs to \(V_{\mathrm{prep}}^{\mathrm{run}}\).
-  \item[\emph{(c)}] Every stream \(v \in \mathcal{L}\) with
-    \(\mathrm{state}[v] \neq \stIdle\) satisfies \(\mathrm{state}[v] =
-    \stPrep\), and no \(\mathrm{Abort}\) message exists in \(\mathit{msgs}\).
+  \item[\emph{(c)}] If additionally \(\forall x \in \mathcal{L},\, \dec[x] =
+    \bot\), every stream \(v \in \mathcal{L}\) with \(\mathrm{state}[v] \neq
+    \stIdle\) satisfies \(\mathrm{state}[v] = \stPrep\), and no
+    \(\mathrm{Abort}\) message exists in \(\mathit{msgs}\).
 \end{enumerate}
 \end{lemma}
 
 \begin{proof}
-First observe that while \(\forall x,\, \dec[x] = \bot\), no stream has
-entered \(\stCom\), \(\stAbt\), or \(\stTomb\): every transition into those
-states sets \(\dec \in \{\stCom,\allowbreak \stAbt\}\). Thus the
-orphan-prepare rule has never fired, and every
-\(\mathrm{PrepareResp}(v, w, \mathtt{ok}) \in \mathit{msgs}\) was emitted
-while \(\mathrm{state}[v] = \stPrep\) either by upward vote decision (when
-\(w = \pi[v]\) and \(\mathrm{AllVotesOk}(v)\) held, since \(\Children(v)\)
-cannot grow while \(v\) stays in \(\stPrep\)) or by the circular
-duplicate-prepare rule (which requires \(w \neq \pi[v]\)). Crucially, the
-duplicate-prepare rule \emph{never} emits
-\(\mathrm{PrepareResp}(v, \pi[v], \mathtt{ok})\).
+While \(\forall x,\, \dec[x] \neq \stCom\), no stream has \(\mathrm{state} =
+\stCom\) or \(\tdt = \stCom\). Hence the orphan-prepare rule can emit only
+\(\mathtt{no}\) or \(\mathtt{prep\_unk}\), never \(\mathtt{ok}\). Every
+\(\mathrm{PrepareResp}(v, w, \mathtt{ok}) \in \mathit{msgs}\) was therefore
+emitted while \(\mathrm{state}[v] = \stPrep\) (during which \(\Children(v) =
+C_{\mathrm{prep}}(v)\) if \(v \in V_{\mathrm{prep}}^{\mathrm{run}}\)) either
+by upward vote decision (requiring \(w = \pi[v]\) and
+\(\mathrm{AllPrepVotesOk}(v)\)) or by the circular duplicate-prepare rule
+(requiring \(w \neq \pi[v]\)). Crucially, the duplicate-prepare rule
+\emph{never} emits \(\mathrm{PrepareResp}(v, \pi[v], \mathtt{ok})\).
 
-\emph{Part~(a).} Induct on the depth \(d \ge 0\) of \(u\) in the
-\(R\)-rooted tree \(T_\pi\) of Lemma~\ref{lem:arborescence}. For \(d = 0\),
-\(u = R\) and \(\mathrm{AllVotesOk}(R)\) holds by hypothesis. For \(d > 0\),
-let \(p = \pi[u]\); by Lemma~\ref{lem:arborescence}, \(p\) has depth
-\(d - 1\) in \(T_\pi\) and \(u \in \Children(p)\). By the induction
-hypothesis, \(\mathrm{AllVotesOk}(p)\) holds, so
-\(\mathrm{PrepareResp}(u, p, \mathtt{ok}) =
-\mathrm{PrepareResp}(u, \pi[u], \mathtt{ok}) \in \mathit{msgs}\). As noted
-above, only upward vote decision at \(u\) can emit an \(\mathtt{ok}\) reply
-to \(\pi[u]\), so \(\mathrm{AllVotesOk}(u)\) holds.
+\emph{Part~(a).} Since \(\mathrm{state}[R] = \stPrep\), \(R \in
+V_{\mathrm{prep}}^{\mathrm{run}}\) and \(\Children(R) = C_{\mathrm{prep}}(R)\).
+Induct on the depth \(d \ge 0\) of \(u\) in \(T_\pi\)
+(Lemma~\ref{lem:arborescence}). For \(d = 0\), \(\mathrm{AllVotesOk}(R)\)
+implies \(\mathrm{AllPrepVotesOk}(R)\). For \(d > 0\), let \(p = \pi[u]\);
+Lemma~\ref{lem:arborescence} gives depth \(d - 1\) for \(p\) and \(u \in
+C_{\mathrm{prep}}(p)\). By induction, \(\mathrm{AllPrepVotesOk}(p)\) holds,
+so \(\mathrm{PrepareResp}(u, \pi[u], \mathtt{ok}) \in \mathit{msgs}\), which
+only upward vote decision at \(u\) can emit; hence
+\(\mathrm{AllPrepVotesOk}(u)\) holds.
 
 \emph{Part~(b).} Let \(A_{\mathrm{run}}\) be the set of streams that have
-ever held \(\mathrm{state} = \stRun\), ordered by the step index
-\(\tau_{\mathrm{run}}(u)\) at which \(u\) entered \(\stRun\). Induct strongly
-on \(\tau_{\mathrm{run}}(u)\).
+ever held \(\mathrm{state} = \stRun\), ordered by entry step
+\(\tau_{\mathrm{run}}(u)\), and induct strongly on \(\tau_{\mathrm{run}}(u)\).
 If \(\tau_{\mathrm{run}}(u) = 0\), then \(u \in I_0\); either \(u = R \in
-V_{\mathrm{prep}}^{\mathrm{run}}\), or \(u\) has a non-zero initial path
-\(R = w_0 \to w_1 \to \cdots \to w_k = u\) in \(\parts_0\). Walking along
-this path: if \(w_i \in V_{\mathrm{prep}}^{\mathrm{run}}\), Part~(a) gives
-\(\mathrm{AllVotesOk}(w_i)\); since \(w_{i+1} \in \parts_0[w_i] \subseteq
-\Children(w_i)\), \(w_{i+1}\) emitted
-\(\mathrm{PrepareResp}(w_{i+1}, w_i, \mathtt{ok})\) from \(\stPrep\).
-Because \(w_{i+1}\) started in \(\stRun\) (never \(\stIdle\)), \(w_{i+1}\)
-could only enter \(\stPrep\) from \(\stRun\), giving \(w_{i+1} \in
-V_{\mathrm{prep}}^{\mathrm{run}}\) and ultimately \(u \in
+V_{\mathrm{prep}}^{\mathrm{run}}\), or \(u\) has an initial path
+\(R = w_0 \to \cdots \to w_k = u\) with \(w_{i+1} \in \parts_0[w_i] \subseteq
+C_{\mathrm{prep}}(w_i)\). If \(w_i \in V_{\mathrm{prep}}^{\mathrm{run}}\),
+Part~(a) gives \(\mathrm{PrepareResp}(w_{i+1}, w_i, \mathtt{ok}) \in
+\mathit{msgs}\), so \(w_{i+1}\) entered \(\stPrep\); since \(w_{i+1}\)
+started in \(\stRun\) (never \(\stIdle\)), \(w_{i+1} \in
+V_{\mathrm{prep}}^{\mathrm{run}}\), giving \(u \in
 V_{\mathrm{prep}}^{\mathrm{run}}\).
 If \(\tau_{\mathrm{run}}(u) > 0\), \(u\) entered \(\stRun\) from \(\stIdle\)
-at some transfer \(X\) moving a partition from \(s\) to \(u\) with
-\(S_{\mathrm{snap}} = \stRun\). Then \(\tau_{\mathrm{run}}(s) <
+at some transfer \(X : s \to u\) with \(S_{\mathrm{snap}} = \stRun\) (before
+\(s\) left \(\stRun\)). Then \(\tau_{\mathrm{run}}(s) <
 \tau_{\mathrm{run}}(u)\), so \(s \in V_{\mathrm{prep}}^{\mathrm{run}}\) by
-the strong induction hypothesis, and \(\mathrm{AllVotesOk}(s)\) holds by
-Part~(a). Since \(s\) was in \(\stRun\) during \(X\) and later committed its
-\(\stPrep\) log, Lemma~\ref{lem:lock}(b) yields \(u \in \Children(s)\) in
-\(\stPrep\). From \(\mathrm{AllVotesOk}(s)\), \(u\) emitted an
-\(\mathtt{ok}\) reply from \(\stPrep\); since \(u\) was already in
-\(\stRun\), \(u \in V_{\mathrm{prep}}^{\mathrm{run}}\).
+induction and \(\mathrm{AllPrepVotesOk}(s)\) holds by~(a). Because \(s\) was
+in \(\stRun\) during \(X\) and committed its \(\stPrep\) log afterward at
+\(\tau_{\mathrm{prep}}(s)\), Lemma~\ref{lem:lock}(b) yields \(u \in
+C_{\mathrm{prep}}(s)\). Thus \(u\) emitted an \(\mathtt{ok}\) reply from
+\(\stPrep\); having already been in \(\stRun\), \(u \in
+V_{\mathrm{prep}}^{\mathrm{run}}\).
 
-\emph{Part~(c).} Any stream \(v\) with \(\mathrm{state}[v] \neq \stIdle\)
-either entered \(\stRun\) (hence \(v \in V_{\mathrm{prep}}^{\mathrm{run}}\)
-by~(b)) or moved directly from \(\stIdle\) to \(\stPrep\) via
-\emph{CommitTransferLogs}. As no stream has \(\dec \neq \bot\),
-\(\mathrm{state}[v] = \stPrep\) for all active \(v\), and no transition
-emitting \(\mathrm{Abort}\) has fired.
+\emph{Part~(c).} When \(\forall x,\, \dec[x] = \bot\), no stream has entered
+\(\stCom\), \(\stAbt\), or \(\stTomb\). Every active stream \(v\) either
+entered \(\stRun\) (hence \(v \in V_{\mathrm{prep}}^{\mathrm{run}}\) by~(b))
+or moved directly from \(\stIdle\) to \(\stPrep\) via
+\emph{CommitTransferLogs}, so \(\mathrm{state}[v] = \stPrep\) and no
+transition emitting \(\mathrm{Abort}\) has fired.
 \end{proof}
 
 \subsection{Unknown-State Recovery and Non-Fabrication}
@@ -458,86 +492,85 @@ Assuming Theorem~6.1(a) holds up to the current state:
 
 \begin{proof}
 Every transition setting \(\tdt[u] \neq \bot\) sets \(\tdt[u] := \dec[u] \in
-\{\stCom, \stAbt\}\), and \(\mathrm{EvictTDT}\) only resets \(\tdt[u] :=
-\bot\); stability of \(\dec[u]\) gives \(\tdt[u] \neq \bot \implies \tdt[u]
-= \dec[u]\), and probe inspection directly yields~(a).
+\{\stCom,\allowbreak \stAbt\}\), and \(\mathrm{EvictTDT}\) only resets
+\(\tdt[u] := \bot\); stability of \(\dec[u]\) gives \(\tdt[u] \neq \bot
+\implies \tdt[u] = \dec[u]\), and probe inspection directly yields~(a).
 
-For~(b), direct client delivery sets \(\mathit{clientResp} := \dec[R]\). A
-recreated coordinator acts only after \(\mathrm{state}[R] = \stTomb\), which
-requires \(\dec[R] \in \{\stCom, \stAbt\}\) and \(\mathrm{AllAcked}(R)\), so
-every \(c \in \parts[R] \subseteq \Children(R)\) already sent
-\(\mathrm{Ack}(c, R)\) and therefore has \(\dec[c] = \dec[R]\) by
-Agreement. If \(\tdt[R] \neq \bot\), \(R\) returns \(\tdt[R] = \dec[R]\).
-Otherwise \(R\) probes \(\parts[R]\):
-if \(\dec[R] = \stCom\), Part~(a) restricts every \(c \in \parts[R]\) to
-\(\mathtt{ok}\) (when \(\mathrm{state}[c] = \stCom\) or \(\tdt[c] =
-\stCom\)) or \(\mathtt{prep\_unk}\) (when \(\mathrm{state}[c] = \stTomb\)
-and \(\tdt[c] = \bot\)), so \(R\) returns \(\stCom\) or
-\(\mathtt{trans\_unknown}\) and never fabricates \(\stAbt\)
-(Figure~\ref{fig:hazards}(b)); symmetrically, if \(\dec[R] = \stAbt\), each
+For~(b), direct client delivery sets \(\mathit{clientResp} := \dec[R] \in
+\{\stCom,\allowbreak \stAbt\}\). A recreated coordinator acts only after
+\(\mathrm{state}[R] = \stTomb\), which requires \(\dec[R] \in
+\{\stCom,\allowbreak \stAbt\}\) and \(\mathrm{AllAcked}(R)\) (since \(R\)
+never executes \(\mathrm{DropRunningCtx}\)). Every \(c \in \parts[R]
+\subseteq \Children(R)\) sent \(\mathrm{Ack}(c, R)\): if \(\dec[R] =
+\stCom\), no \(\mathrm{Abort}\) message or \(\dec = \stAbt\) exists by
+Agreement, so \(c\) sent \(\mathrm{Ack}(c, R)\) from \(\stCom\) or
+post-\(\stCom\) \(\stTomb\) and has \(\dec[c] = \stCom\); if \(\dec[R] =
+\stAbt\), \(c\) sent \(\mathrm{Ack}(c, R)\) after logging \(\stAbt\) or
+losing \(\stRun\) context, so \(\dec[c] = \stAbt\). If \(\tdt[R] \neq \bot\),
+\(R\) returns \(\tdt[R] = \dec[R]\). Otherwise \(R\) probes \(\parts[R]\):
+when \(\dec[R] = \stCom\), Part~(a) restricts every \(c \in \parts[R]\) to
+\(\mathtt{ok}\) or \(\mathtt{prep\_unk}\), so \(R\) returns \(\stCom\) or
+\(\mathtt{trans\_unknown}\) and never \(\stAbt\)
+(Figure~\ref{fig:hazards}(b)); symmetrically, when \(\dec[R] = \stAbt\), each
 \(c \in \parts[R]\) replies \(\mathtt{no}\) or \(\mathtt{prep\_unk}\), so
-\(R\) never fabricates \(\stCom\). Finally, if \(\tdt[u] = \dec[u]\) holds
-for all decided \(u\), then \(\tdt[R] = \dec[R] \neq \bot\) at
-\(\mathrm{StartRetry}\), so \(R\) resolves directly from \(\tdt[R]\) without
-returning \(\mathtt{trans\_unknown}\).
+\(R\) returns \(\stAbt\) or \(\mathtt{trans\_unknown}\) and never \(\stCom\).
+Finally, if \(\tdt[u] = \dec[u]\) holds for all decided \(u\), then
+\(\tdt[R] = \dec[R] \neq \bot\) at \(\mathrm{StartRetry}\), avoiding
+\(\mathtt{trans\_unknown}\).
 \end{proof}
 
 \subsection{Atomic Agreement and Safety}
 \label{sec:safety}
 \begin{proof}[Proof of Theorem 6.1]
 \emph{Part~(a).} Because \(\dec[u]\) is modified only when \(\dec[u] =
-\bot\) (or idempotently to the same outcome upon a redundant migration),
+\bot\) (or idempotently to the same outcome upon a redundant migration), we
 verify by step induction that no step creates conflicting \(\stCom\) and
-\(\stAbt\) entries in \(\dec\). Non-root streams adopt \(\stCom\) only from
-a \(\mathrm{Commit}\) message or a transfer with \(D_{\mathrm{snap}} =
-\stCom\), neither of which can exist before some stream first records
-\(\dec = \stCom\). Thus the very first step in an execution that sets any \(\dec[u] := \stCom\)
-must be \(R\)'s commit decision in \(\stPrep\) with
-\(\mathrm{AllVotesOk}(R)\). Immediately before that step, no stream can
-already have \(\dec[x] = \stAbt\): suppose for contradiction that the
-earliest decision in the execution was \(\dec[x_0] = \stAbt\), and \(R\)
-later reaches \(\mathrm{AllVotesOk}(R)\) in \(\stPrep\) (with no \(\stCom\)
-yet). Stream \(x_0\) could not obtain \(\dec[x_0] = \stAbt\) from
-\(\mathrm{Abort}\) messages or \(D_{\mathrm{snap}} = \stAbt\), nor from \(R\)
-deciding \(\stAbt\) (since \(\mathrm{state}[R] = \stPrep\) later contradicts
-monotonicity of \(\mathrm{state}[R]\)); hence \(x_0\) executed
-\(\mathrm{InternalAbort}(x_0)\) or \(\mathrm{DropRunningCtx}(x_0)\) from
-\(\stRun\), so \(x_0 \in A_{\mathrm{run}} \setminus
-V_{\mathrm{prep}}^{\mathrm{run}}\). Yet the proof of
-Lemma~\ref{lem:guard}(a)--(b) uses only that no stream has entered
-\(\stCom\) (as \(\stAbt\)/\(\stTomb\) streams with \(\dec = \stAbt\) never
-emit \(\mathtt{ok}\)), forcing \(A_{\mathrm{run}} \subseteq
+\(\stAbt\) entries in \(\dec\) (completing Lemma~\ref{lem:lock}(b)'s mutual
+induction). Non-root streams adopt \(\stCom\) only from a \(\mathrm{Commit}\)
+message or a transfer with \(D_{\mathrm{snap}} = \stCom\), neither of which
+can exist before some stream first records \(\dec = \stCom\). Thus the first
+step setting any \(\dec[u] := \stCom\) must be \(R\)'s commit decision in
+\(\stPrep\) with \(\mathrm{AllVotesOk}(R)\). Immediately before that step,
+\(\forall x,\, \dec[x] \neq \stCom\), so Lemma~\ref{lem:guard}(b) gives
+\(A_{\mathrm{run}} \subseteq V_{\mathrm{prep}}^{\mathrm{run}}\). Could some
+stream already have \(\dec[x] = \stAbt\)? If so, consider the earliest step
+setting any \(\dec[x_0] := \stAbt\): before it, no \(\mathrm{Abort}\) message
+or \(D_{\mathrm{snap}} = \stAbt\) existed, and \(x_0 \neq R\) (since
+\(\mathrm{state}[R] = \stPrep\) later contradicts monotonicity of
+\(\mathrm{state}[R]\)); hence \(x_0\) transitioned directly from \(\stRun\)
+to \(\stAbt\) or \(\stTomb\) via local abort or volatile context loss,
+putting \(x_0 \in A_{\mathrm{run}} \setminus
 V_{\mathrm{prep}}^{\mathrm{run}}\)---contradiction.
 
 Hence at \(R\)'s commit step, \(\forall x,\, \dec[x] = \bot\), and
-Lemma~\ref{lem:guard}(c) guarantees that every active stream is in
-\(\stPrep\) and \(\mathit{msgs}\) contains no \(\mathrm{Abort}\). From that
-point onward, no stream can ever enter \(\stRun\) (transfers see only
-\(\stPrep\) or \(\stCom\) sources), disabling \(\mathrm{InternalAbort}\) and
-\(\mathrm{DropRunningCtx}\); \(\mathrm{state}[R] \in \{\stCom,\allowbreak
-\stTomb\}\) disables \(R\)'s abort decision; and without \(\mathrm{Abort}\)
-messages or \(\stAbt\) sources, no transition into \(\stAbt\) can ever be
-enabled. Thus \(\stCom\) and \(\stAbt\) are mutually exclusive across all
-streams and all steps.
+Lemma~\ref{lem:guard}(c) ensures every active stream is in \(\stPrep\) with
+no \(\mathrm{Abort}\) in \(\mathit{msgs}\). Thereafter no stream can enter
+\(\stRun\) (transfers see only \(\stPrep\) or \(\stCom\) sources), disabling
+local abort and volatile context loss; \(\mathrm{state}[R] \in
+\{\stCom,\allowbreak \stTomb\}\) disables \(R\)'s abort decision; and without
+\(\mathrm{Abort}\) messages or \(\stAbt\) sources, no transition into
+\(\stAbt\) can ever fire. Thus \(\stCom\) and \(\stAbt\) are mutually
+exclusive across all streams and steps.
 
-\emph{Part~(b).} Agreement immediately implies \(\dec[h(p)] = \dec[R]\)
-whenever both are non-\(\bot\). Suppose all streams lie in
-\(\{\stIdle,\allowbreak \stTomb\}\) with no transfer mid-flight. Since
-\(R \in I_0\) is never \(\stIdle\), \(\mathrm{state}[R] = \stTomb\), so \(R\)
-reached \(d = \dec[R] \in \{\stCom,\allowbreak \stAbt\}\). Every \(u\) with
-\(\mathrm{state}[u] = \stTomb\) and \(\dec[u] = d\) entered \(\stTomb\) via
-\(\mathrm{ForgetCtx}(u)\) after \(\mathrm{AllAcked}(u)\), meaning every
-\(c \in \Children(u)\) sent \(\mathrm{Ack}(c, u)\) (requiring \(\dec[c] = d\)
-by~(a)) and merged \(\interm[u] = \varnothing\) when \(u\) logged \(d\)
-(with no transfer starting after \(\mathrm{state}[u] = \stTomb\)). Induction
-along \(E_{\mathrm{act}}\) from \(R\) gives \(\dec[v] = d\) for every
-\(v \in \mathrm{Reach}(G_{\mathrm{act}}, R)\). By Lemma~\ref{lem:coverage}
-and~(a), \(\dec[h(p)] = d = \dec[R]\) for all \(p \in \mathcal{P}\).
+\emph{Part~(b).} Agreement implies \(\dec[h(p)] = \dec[R]\) whenever both are
+non-\(\bot\). Suppose all streams lie in \(\{\stIdle,\allowbreak \stTomb\}\)
+with no transfer in flight. Since \(R \in I_0\) never executes volatile
+context loss, \(R\) entered \(\stTomb\) via \(\mathrm{ForgetCtx}(R)\) with
+\(d = \dec[R] \in \{\stCom,\allowbreak \stAbt\}\). For any \(u\) with
+\(\mathrm{state}[u] = \stTomb\) and \(\dec[u] = d\): either \(u\) lost
+volatile \(\stRun\) context (so \(d = \stAbt\) and \(\parts[u] = \incr[u] =
+\interm[u] = \varnothing\), giving no outgoing \(E_{\mathrm{act}}\) edges),
+or \(u\) entered \(\stTomb\) via \(\mathrm{ForgetCtx}(u)\) after logging
+\(d\) (merging \(\interm[u] = \varnothing\), with no transfer starting from
+\(\stTomb\)) and collecting \(\mathrm{AllAcked}(u)\), which requires every
+\(c \in \Children(u)\) to have \(\dec[c] = d\) by~(a). Induction along
+\(E_{\mathrm{act}}\) from \(R\) gives \(\dec[v] = d\) for all \(v \in
+\mathrm{Reach}(G_{\mathrm{act}}, R)\), and Lemma~\ref{lem:coverage} with~(a)
+yields \(\dec[h(p)] = d = \dec[R]\) for all \(p \in \mathcal{P}\).
 
 \emph{Part~(c).} Follows directly from~(a) and Lemma~\ref{lem:unknown}(b).
 \end{proof}
 
-\balance
 \subsection{Liveness Under Bounded Transfers and Cycles}
 \label{sec:liveness}
 
@@ -551,61 +584,59 @@ retry-resolution transitions.
 \noindent\textsc{Theorem 6.2 (Liveness).}
 \emph{Under these progress assumptions, every active log stream---including
 every final partition host \(h(p)\), even across circular transfer
-topologies---eventually records a common terminal outcome \(d \in \{\stCom,
-\stAbt\}\) and reclaims its \(\mathrm{TCT}\) (\(\stTomb\)).}
+topologies---eventually reaches a common terminal decision \(\dec[u] = d \in
+\{\stCom,\allowbreak \stAbt\}\) and reclaims its \(\mathrm{TCT}\)
+(\(\stTomb\)).}
 
 \begin{proof}
 Since transfers are bounded by \(K\) and each in-flight transfer finishes
-under fairness, a suffix of the execution contains no further transfers and
+under fairness, a suffix of the execution has no further transfers and
 satisfies \(\forall u,\, \blocked[u] = \mathsf{false}\) forever. Thereafter
-the active stream set \(V_{\mathrm{act}} = \{u \in \mathcal{L} :
-\mathrm{state}[u] \neq \stIdle\}\) and edge sets \(\interm, \incr\) freeze
-except for phase-boundary merges.
+the active set \(V_{\mathrm{act}} = \{u \in \mathcal{L} : \mathrm{state}[u]
+\neq \stIdle\}\) and staging sets \(\interm\) never grow.
 
-\emph{Stage 1: Exit from \(\stRun\) and root decision.} Under fairness of
-root initiation (unless \(R\) already aborted), \(R\) leaves \(\stRun\) for
-\(\stPrep\) or \(\stAbt\).
-\emph{Case 1: Some stream eventually records \(\dec[x] = \stAbt\).} If
-\(\dec[R] = \bot\), \(\mathrm{state}[R] = \stPrep\). Could \(R\) remain in
-\(\stPrep\) forever? While \(R\) stays in \(\stPrep\), every
-\(\mathrm{PrepareReq}\) sent from \(R\) propagates down
-\(\mathrm{Reach}(G_{\mathrm{act}}, R)\): each reached \(\stRun\) stream
-enters \(\stPrep\) and forwards \(\mathrm{PrepareReq}\); any stream in
-\(\{\stAbt, \stTomb\}\) with \(\dec = \stAbt\) replies \(\mathtt{no}\) or
-\(\mathtt{prep\_unk}\) to incoming \(\mathrm{PrepareReq}\). If no reached
-stream ever sends \(\mathtt{no}\) or \(\mathtt{prep\_unk}\), consider the
-acyclic tree \(T_\pi\) on \(V_{\mathrm{prep}}^{\mathrm{run}}\) (whose proof
-in Lemma~\ref{lem:arborescence} requires only that no stream has entered
-\(\stCom\) and that every node in \(V_{\mathrm{prep}}^{\mathrm{run}}\) had
-\(\pi = \bot\) before preparing): for any \(u \in
-V_{\mathrm{prep}}^{\mathrm{run}}\) and \(c \in \Children(u)\), once \(c\)
-reaches \(\stPrep\), if \(\pi[c] \neq u\) then \(c\) immediately emits
-\(\mathrm{PrepareResp}(c, u, \mathtt{ok})\) without waiting on
-\(\Children(c)\)~\cite[\S4.6]{tree2pc}; only edges with \(\pi[c] = u\) wait
-on \(c\)'s subtree. Bottom-up induction on \(T_\pi\) from its leaves to
-\(R\) would then yield \(\mathrm{AllVotesOk}(R)\), enabling \(R\) to commit
-and contradicting Theorem~6.1(a) against \(\dec[x] = \stAbt\). Thus some
-branch delivers \(\mathtt{no}\) or \(\mathtt{prep\_unk}\) up \(T_\pi\) (or
-delivers \(\mathrm{Abort}\) directly to \(R\)), driving \(R\) to \(\stAbt\).
+\emph{Stage 1: Root decision.} Under fairness of root initiation (unless
+\(R\) already aborted), \(R\) leaves \(\stRun\) for \(\stPrep\) or \(\stAbt\).
+Suppose \(\dec[R] = \bot\), so \(\mathrm{state}[R] = \stPrep\) (and by
+Theorem~6.1(a), \(\forall x,\, \dec[x] \neq \stCom\)). While \(R\) remains in
+\(\stPrep\), trace \(\mathrm{PrepareReq}\) propagation from \(R\): each
+\(\stRun\) recipient enters \(\stPrep\) (joining \(V_{\mathrm{prep}}^{\mathrm{run}}\))
+and emits \(\mathrm{PrepareReq}\) to its \(C_{\mathrm{prep}}\) children; any
+recipient in \(\{\stAbt,\allowbreak \stTomb\}\) has \(\dec = \stAbt\) and
+replies \(\mathtt{no}\) or \(\mathtt{prep\_unk}\); any recipient \(w\) that
+directly inherited \(\stPrep\) from an \(\stIdle\) transfer target has
+\(\pi[w]\) equal to its migration source (which placed \(w\) in
+\(\interm[\pi[w]]\), not \(C_{\mathrm{prep}}(\pi[w])\)), so any
+\(\mathrm{PrepareReq}(u, w)\) comes from \(u \neq \pi[w]\) and immediately
+receives \(\mathtt{ok}\) via duplicate-prepare. If no stream in \(T_\pi\)
+ever receives \(\mathtt{no}\) or \(\mathtt{prep\_unk}\), then for every
+\(u \in V_{\mathrm{prep}}^{\mathrm{run}}\) and \(c \in C_{\mathrm{prep}}(u)\),
+once \(c\) is in \(\stPrep\), if \(\pi[c] \neq u\) then \(c\) immediately
+emits \(\mathrm{PrepareResp}(c, u, \mathtt{ok})\) without waiting on
+\(\Children(c)\)~\cite[\S4.6]{tree2pc}, so wait dependencies follow only the
+finite acyclic tree \(T_\pi\) (Lemma~\ref{lem:arborescence}). Bottom-up
+induction from the leaves of \(T_\pi\) to \(R\) then yields
+\(\mathrm{AllVotesOk}(R)\) in finite steps: if some stream had \(\dec[x] =
+\stAbt\), \(R\) committing would contradict Theorem~6.1(a), so a negative
+reply (or \(\mathrm{Abort}\)) reaches \(R\) and drives \(\dec[R] := \stAbt\);
+otherwise \(R\) logs \(\dec[R] := \stCom\).
 
-\emph{Case 2: No stream ever records \(\dec = \stAbt\).} Then \(R\) enters
-\(\stPrep\), every stream in \(\mathrm{Reach}(G_{\mathrm{act}}, R)\) enters
-\(\stPrep\) (none aborts or loses \(\stRun\) context), secondary-parent
-edges (\(u \neq \pi[c]\)) reply \(\mathtt{ok}\) immediately upon local
-\(\stPrep\) entry without cyclic wait dependencies, and bottom-up induction
-along the finite acyclic tree \(T_\pi\) delivers \(\mathrm{AllVotesOk}(u)\)
-at every \(u \in T_\pi\) in finite steps. Hence \(R\) enters \(\stCom\).
-
+\balance
 \emph{Stage 2: Downward completion and \(\stTomb\).} Once \(\dec[R] = d \in
-\{\stCom, \stAbt\}\), Lemma~\ref{lem:coverage} and monotonic merges imply
-that every \(u \in V_{\mathrm{act}}\) either already has \(\dec[u] = d\) or
-is reachable from \(R\) (or from an already-decided stream) via \(\Children\)
-as \(d\) propagates downward. Each newly reached stream logs \(d\), forwards
-\(d\) to \(\Children(u)\), and immediately emits \(\mathrm{Ack}\) upstream
-\emph{without} waiting for \(\mathrm{AllAcked}(u)\); already-decided targets
-on cycle back-edges likewise emit \(\mathrm{Ack}\) immediately. Thus every
-\(u \in V_{\mathrm{act}}\) records \(\dec[u] = d\), collects
-\(\mathrm{AllAcked}(u)\), and executes \(\mathrm{ForgetCtx}(u)\) to reach
+\{\stCom,\allowbreak \stAbt\}\) in the post-transfer suffix,
+Lemma~\ref{lem:coverage} guarantees that every \(u \in V_{\mathrm{act}}\)
+satisfies \(u \in \mathrm{Reach}(G_{\mathrm{act}}, R) \lor \dec[u] \neq
+\bot\) (with \(\dec[u] = d\) by Theorem~6.1(a)). As each decided stream in
+\(\{\stCom,\allowbreak \stAbt\}\) has already merged \(\interm =
+\varnothing\) into \(\Children\) via \textsc{LogCommit} and forwarded \(d\)
+to \(\Children\), induction along \(E_{\mathrm{act}}\) from \(R\) (and any
+already-decided streams) transitions every remaining \(u \in V_{\mathrm{act}}
+\cap \{\stRun,\allowbreak \stPrep\}\) directly into \(d\) and forwards \(d\)
+to \(\Children(u)\). Because every recipient emits \(\mathrm{Ack}\)
+immediately upon logging \(d\) (or from \(\{d,\allowbreak \stTomb\}\) on
+cycle back-edges and volatile-loss leaves) without waiting for
+\(\mathrm{AllAcked}\), every stream in \(\{\stCom,\allowbreak \stAbt\}\)
+collects \(\mathrm{AllAcked}\) and executes \(\mathrm{ForgetCtx}\) to reach
 \(\stTomb\); Theorem~6.1(b) gives \(\dec[h(p)] = d\) for all \(p \in
 \mathcal{P}\).
 \end{proof}

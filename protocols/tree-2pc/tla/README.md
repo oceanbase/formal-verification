@@ -5,7 +5,7 @@ Dynamic tree-structured two-phase commit (2PC) specification over OceanBase coal
 The model exercises the concrete mechanisms of *A Tree-Structured Two-Phase Commit Framework for OceanBase: Optimizing Scalability and Consistency* (PVLDB 19(12), DOI: `10.14778/3827998.3828030`) and complements the companion protocol-model proof ([*Safety and Liveness of a Tree-Structured Two-Phase Commit Protocol Model*](../proof/tree-2pc-proof.pdf)). The checked properties describe the TLA+ model under the finite bounds listed below.
 
 - Detailed results, ablations, and model abstractions: [`results.md`](results.md)
-- Machine-readable 9-case summary: [`completed-results.csv`](completed-results.csv)
+- Machine-readable 10-case summary: [`completed-results.csv`](completed-results.csv)
 
 ## Reproduce a check
 
@@ -39,10 +39,11 @@ Each witness succeeds when its output says `REACHED`. Its invariant asserts that
 | `Tree2PCDiamond.cfg` | 4-stream 2-partition cross-branch / diamond transfer safety check (`r -> {a, b}` + fresh `d1`, `MaxTransfers = 2`) |
 | `Tree2PCHierTransfer.cfg` | 5-stream hierarchical + fresh transfer stream safety check (`r -> {a, b}`, `a -> {c}` + `d1`, 3 partitions, `MaxTransfers = 1`, full TDT + retry) |
 | `LivenessTransfer.cfg` | 3-stream dynamic transfer + retry liveness check (no symmetry) |
-| `LivenessCircular.cfg` | 3-stream circular transfer + retry liveness check (no symmetry) |
+| `LivenessCircular.cfg` | 3-stream circular transfer + context loss + TDT + retry liveness check (no symmetry) |
 | `LivenessMultiHop.cfg` | 4-stream multi-hop transfer liveness check (`MaxTransfers = 2`, no symmetry) |
+| `LivenessDiamond.cfg` | 4-stream 2-partition cross-branch / diamond transfer liveness check (`MaxTransfers = 2`, no symmetry) |
 | `Coverage.cfg`, `CoverageCircular.cfg`, `LiveCoverage.cfg` | Shared base configurations for reachability witnesses |
-| `completed-results.csv` | Machine-readable table of all 9 completed exhaustive runs |
+| `completed-results.csv` | Machine-readable table of all 10 completed exhaustive runs |
 | `run.sh` | Run a config: `[TLC_WORKERS=8] [TLC_HEAP=8g] [TLC_DIRECT=16g] ./run.sh <Config>` |
 | `check-witnesses.sh` | Run reachability witnesses (each should output `REACHED`); override base via `BASE=CoverageCircular` or `BASE=LiveCoverage` |
 
