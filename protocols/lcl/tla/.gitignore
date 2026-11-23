@@ -1,0 +1,5 @@
+states/
+tmp/
+out/
+Witness_*.cfg
+tla2tools.jar
