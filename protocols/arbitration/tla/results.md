@@ -1,7 +1,6 @@
 # TLC Model-Checking Results
 
 - **Primary verified suite (8 completed finite instances)**: The first seven ran on 2026-11-14 with TLC 2.14 (TLA+ Tools release 1.6.0), OpenJDK 8u502, and 15 workers on a 32-vCPU / 236 GiB host. The [results index](completed-results.csv) records the model bounds, state counts and TLC fingerprint-collision estimates.
-- **Specification**: `Arbitration.tla` (918 lines including comments; protocol actions, invariants, and properties are semantically identical to the 2026-11-14 verified snapshot). Terminology mapping: [`README.md`](README.md).
 
 This specification models OceanBase PALF mechanisms (two-tuple log barrier, stale-entry truncation upon configuration installation, `StartWorking`, on-demand `ConfirmConfig`, and arbiter pushes with proposal catch-up) and complements the companion protocol-model proof (*Safety and Liveness of an Arbitration Protocol Model*). Every row in the tables below exhausted its finite state space completely (`exit 0`, TLC completion marker, no errors, empty final queue). Reported depth is the completion depth reported by TLC, not a configured depth cutoff.
 
