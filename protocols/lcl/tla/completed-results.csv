@@ -1,9 +1,9 @@
-name,check,spec,topology,vertices,edges,stage0,MaxLCLV,ProlifRounds,SpreadRounds,generated_states,distinct_states,reported_depth,workers,TLC_time,TLC_fingerprint_estimate_optimistic
-AsyncAcyclicDAG,safety,Spec,multi-outdegree diamond DAG,4,4,True,4,1,1,1853,703,15,4,00s,4.4E-14
-AsyncAnnulusTail,safety,Spec,high-AP annulus + cycle + tail,5,5,True,4,2,2,65753,24529,22,4,01s,5.5E-11
-AsyncMultiCycleSCC,safety,Spec,multi-cycle SCC + annulus,5,6,True,3,1,6,304650,108887,29,4,15s,1.2E-9
-RoundAnnulusTail,safety,RoundSpec,high-AP annulus + cycle + tail,5,5,True,10,2,2,3680,1478,30,4,00s,1.8E-13
-RoundMultiCycleSCC,safety,RoundSpec,multi-cycle SCC + annulus,5,6,False,10,1,6,35925,12233,87,4,03s,1.6E-11
-RoundHybridStage0,safety,RoundSpec,local lasso + hybrid remote cycle,6,6,True,10,1,4,18637,6288,42,4,02s,4.2E-12
-LivenessChained,liveness,LiveSpec,annulus + two chained SCCs,5,6,True,10,1,2,13031,4466,43,4,02s,2.1E-12
-LivenessHybrid,liveness,LiveSpec,local lasso + hybrid remote cycle,6,6,True,10,1,4,18637,6288,42,4,03s,4.2E-12
+name,check,spec,topology,vertices,edges,stage0,MaxLCLV,MaxPeriods,ProlifRounds,SpreadRounds,generated_states,distinct_states,reported_depth,workers,TLC_time,TLC_fingerprint_estimate_optimistic
+AsyncAcyclicDAG,safety,Spec,multi-outdegree diamond DAG,4,4,True,4,2,,,1853,703,13,4,00s,4.4E-14
+AsyncAnnulusTail,safety,Spec,high-AP annulus + cycle + tail,5,5,True,4,2,,,65753,24529,22,4,03s,5.5E-11
+AsyncMultiCycleSCC,safety,Spec,multi-cycle SCC + annulus,5,6,True,3,2,,,304650,108887,29,4,19s,1.2E-9
+RoundAnnulusTail,safety,RoundSpec,high-AP annulus + cycle + tail,5,5,True,,,2,2,3680,1478,30,4,01s,1.8E-13
+RoundMultiCycleSCC,safety,RoundSpec,multi-cycle SCC + annulus,5,6,False,,,1,6,35925,12233,87,4,06s,1.6E-11
+RoundHybridStage0,safety,RoundSpec,local lasso + hybrid remote cycle,6,6,True,,,1,4,18637,6288,42,4,04s,4.2E-12
+LivenessChained,liveness,LiveSpec,annulus + surviving-bridge chained SCCs,5,6,True,,,2,2,31471,10907,58,4,05s,1.2E-11
+LivenessHybrid,liveness,LiveSpec,local lasso + hybrid remote cycle,6,6,True,,,1,4,18637,6288,42,4,05s,4.2E-12

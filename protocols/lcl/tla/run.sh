@@ -19,6 +19,14 @@ cd "$HERE"
 
 WORKERS="${TLC_WORKERS:-4}"
 HEAP="${TLC_HEAP:-4g}"
+if [[ ! "$WORKERS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Invalid TLC_WORKERS: $WORKERS" >&2
+  exit 2
+fi
+if [[ ! "$HEAP" =~ ^[1-9][0-9]*[kKmMgG]$ ]]; then
+  echo "Invalid TLC_HEAP: $HEAP" >&2
+  exit 2
+fi
 mkdir -p "$HERE/states"
 RUN_DIR=$(mktemp -d "$HERE/states/${CFG}.XXXXXXXX")
 METADIR_TLC="$RUN_DIR/states"

@@ -43,31 +43,36 @@ wait-for graph (WFG) in which a vertex may wait on multiple downstream
 holders at once. Each vertex maintains a dynamic lock chain length value
 (\(\lclv\)) and candidate victim identifier (\(\puid\)), exchanging
 fixed-size metadata only with its immediate downstream neighbors.
-Definition, lemma, and theorem numbering follows \emph{\(\text{LCL}^+\):
-a Lock Chain Length-based Distributed Deadlock Detection and Resolution
-Service Built for OceanBase} by Zhenkun Yang, Chen Qian, and
-colleagues~\cite{lclplus} (expanding~\cite{lcl}). Under the protocol
-premises below, Theorem~5.1 establishes soundness (no manslaughter) and
-the per-cycle victim bound (no multi-kill) under arbitrary asynchronous,
-lossy, or reordered message delivery; Theorem~5.5, Lemma~5.10, and
-Theorem~5.11 establish single-period isolation and unique victim
-selection in every topmost strongly connected component; and
-Theorem~5.12 gives multi-period liveness across chained deadlocks and
-\(\text{LCL}^+\) Stage~0 pre-proliferation. Section~\ref{sec:model}
-describes the scope of the companion TLA+ specification.
+Definitions~3.1--4.10, Lemmas~5.1, 5.4, 5.6--5.8, and~5.10,
+Corollary~5.9, and Theorems~5.5 and~5.11 follow the numbering of
+\emph{\(\text{LCL}^+\): a Lock Chain Length-based Distributed Deadlock
+Detection and Resolution Service Built for OceanBase} by Zhenkun Yang,
+Chen Qian, and colleagues~\cite{lclplus} (expanding~\cite{lcl}), while
+Theorems~5.1a and~5.12 formalize Sections~5.1.1 and~5.1.2. Under the
+protocol premises below, Theorem~5.1a establishes historical soundness
+(no manslaughter of never-deadlocked transactions) and the \(N\)-cycle
+victim bound under asynchronous, lossy, or reordered updates within each
+period; Theorem~5.5, Lemma~5.10, and Theorem~5.11 establish
+single-period isolation and unique victim selection in every topmost
+strongly connected component; and Theorem~5.12 gives multi-period
+liveness across chained deadlocks and \(\text{LCL}^+\) Stage~0
+pre-proliferation. Section~\ref{sec:model} describes the scope of the
+companion TLA+ specification.
 
-\phead{Theorem 5.1 (Asynchronous safety)}%
-\emph{Let \(G=(V,E)\) be an initial WFG containing \(N\) simple directed
-cycles, and suppose vertices leave \(G\) only when terminated by the
-detector. Across any sequence of detection periods with arbitrary
-message delays, losses, duplicates, reorderings, and early phase
-switches:}
+\phead{Theorem 5.1a (Asynchronous safety)}%
+\emph{Let \(G=(V,E)\) be a snapshot WFG containing \(N\) simple directed
+cycles, where vertices and edges leave \(G\) only as victims are
+terminated and no new wait edges arrive. Across any sequence of
+detection periods in which period resets discard prior-period spread
+messages, while within each period updates may be lost, duplicated,
+reordered, or cut short by early phase switches:}
 \begin{enumerate}
-  \item[\emph{(a)}] \emph{Soundness (no manslaughter). Every vertex
-    detected by Stage~0 or Stage~3 belongs to a simple directed cycle in
-    \(G\) on which it holds the strictly largest abortion priority.}
-  \item[\emph{(b)}] \emph{Bounded victims (no multi-kill). At most \(N\)
-    vertices are terminated in total; in particular, if \(G\) is acyclic
+  \item[\emph{(a)}] \emph{Historical soundness (no manslaughter). Every
+    vertex detected by Stage~0 or Stage~3 belongs to a simple directed
+    cycle in \(G\) on which it holds the strictly largest abortion
+    priority.}
+  \item[\emph{(b)}] \emph{Per-cycle victim bound. At most \(N\) vertices
+    are terminated in total; in particular, if \(G\) is acyclic
     (\(N=0\)), no vertex is ever terminated.}
 \end{enumerate}
 
@@ -87,12 +92,14 @@ write \(A\Rightarrow B\) if there exists a directed walk from \(A\) to
 (Definition~3.5); and \(A\Leftrightarrow B\) holds when both
 \(A\Rightarrow B\) and \(B\Rightarrow A\) (Definition~3.3). Each vertex
 \(X\in V\) carries a fixed unique private identifier \(\prid(X)\) and
-fixed abortion priority \(\ap(X)\) (Definitions~4.1 and~4.3). Breaking
-ties by \(\prid\) makes \(\ap\) a strict total order on \(V\) (the paper
-sets \(\ap=\prid\) without loss of generality). Dynamically, \(X\)
-stores \(\lclv(X)\in\mathbb{N}\) (initially \(0\), Definition~4.4) and
-\(\puid(X)\in V\) (initialized to \(\prid(X)\) at the start of every
-detection period, Definition~4.2). For \(U\subseteq V\),
+fixed injective abortion priority \(\ap(X)\) defining a strict total
+order on \(V\) (if raw priorities can tie, \(\ap(X)\) denotes the
+lexicographic pair \((\mathrm{raw\_AP}(X),\prid(X))\); the paper sets
+\(\ap=\prid\) without loss of generality, Definitions~4.1 and~4.3).
+Dynamically, \(X\) stores \(\lclv(X)\in\mathbb{N}\) (initially \(0\),
+Definition~4.4) and \(\puid(X)\in V\) (initialized to \(\prid(X)\) at
+the start of every detection period, with prior-period spread updates
+discarded across the reset, Definition~4.2). For \(U\subseteq V\),
 \(\max\{U.\lclv\}=\max(\{0\}\cup\{X.\lclv : X\in U\})\)
 (Definition~4.5).
 
@@ -156,7 +163,7 @@ OceanBase executes periodic proliferation and spread windows of fixed
 wall-clock duration (\(1.4\,\text{s}\) default) with message buffering
 and rate-limiting, integrating Stage~3 checks into incoming spread
 updates without runtime knowledge of \(\asgwidth(S)\) or
-\(\sccdiam(S)\)~\cite[\S4.6, \S7.1]{lclplus}. Theorem~5.1 proves safety
+\(\sccdiam(S)\)~\cite[\S4.6, \S7.1]{lclplus}. Theorem~5.1a proves safety
 for this asynchronous, potentially under-provisioned execution;
 Theorems~5.11 and~5.12 prove completeness and liveness when periods
 deliver the round counts of Definition~4.10.
@@ -166,15 +173,15 @@ deliver the round counts of Definition~4.10.
 \begin{figure*}[t]
   \centering
   \includegraphics[width=0.96\textwidth]{figures/annulus-deduction.pdf}
-  \caption{Execution of \(\text{LCL}\) on an SCC \(S=\{10,20\}\)
-  (\(d=1\)) with a higher-priority upstream annulus chain
+  \caption{Representative execution of \(\text{LCL}\) on an SCC
+  \(S=\{10,20\}\) (\(d=1\)) with a higher-priority upstream annulus chain
   \(\asg(S)=\{99,80\}\) (\(w=2\)) and a multi-outdegree downstream
   non-cycle neighbor \(90\notin\usg(S)\). Labels above vertices show
   \(\lclv\mid\puid\) (with \(\prid=\ap\)). After \(\max(w,1)=2\)
   proliferation rounds~(b), \(\asg(S)\) stabilizes strictly below \(S\),
-  preventing \(99\) from entering \(S\) during spread~(c). Although
-  \(10\to 90\) raises \(90.\lclv\) to \(3\), \(90.\puid=90\neq 10.\puid=20\),
-  so Stage~3 selects \(B=20\) uniquely.}
+  preventing \(99\) from entering \(S\) during spread~(c). Even under an
+  interleaving where \(10\to 90\) raises \(90.\lclv\) to \(3\),
+  \(90.\puid=90\neq 10.\puid=20\), so Stage~3 selects \(B=20\) uniquely.}
   \Description{Three panels showing initial state, state after two
   proliferation rounds, and state after two spread rounds on a five-node
   wait-for graph with annulus nodes 99 and 80, cycle nodes 10 and 20, and
@@ -184,7 +191,7 @@ deliver the round counts of Definition~4.10.
 
 \subsection{Asynchronous Safety}
 \label{sec:async-safety}
-\begin{proof}[Proof of Theorem 5.1]
+\begin{proof}[Proof of Theorem 5.1a]
 Consider first a victim \(v\) detected by Stage~0 when a local edge
 \(v_k\to v_j\) closes a revisited suffix \(C=(v_j,\dots,v_k)\) of the
 DFS stack. Because \(v_j,\dots,v_k\) are distinct and each step
@@ -193,29 +200,36 @@ simple directed cycle in \(G\), and Stage~0 selects
 \(v=\arg\max_{X\in C} X.\ap\), which is strictly greater in \(\ap\) than
 every \(X\in C\setminus\{v\}\).
 
-Now consider any single period's Stage~1--3 execution (even if Stage~3
-is evaluated inline during Spread and earlier victims have already
-removed edges from \(G\)). At period start, every active vertex \(X\)
-sets \(X.\puid:=X.\prid\), so \(X.\puid.\ap=X.\ap\). Stage~1 leaves
-\(\puid\) untouched, and Stage~2 updates \(Y.\puid\) on an active edge
-\(X\to Y\) only when \(X.\puid.\ap>Y.\puid.\ap\), setting
-\(Y.\puid:=X.\puid\). By induction on spread steps within the period:
-\emph{(i)}~\(Y.\puid.\ap\) is nondecreasing and hence always satisfies
-\(Y.\puid.\ap\ge Y.\ap\); and \emph{(ii)}~whenever a vertex \(Y\neq v\)
-first acquires \(Y.\puid=v.\prid\) from an incoming edge \(X\to Y\),
-\(X\) already held \(X.\puid=v.\prid\) and
+Now consider any single period's Stage~1--3 execution (including inline
+Stage~3 evaluation during Spread while earlier victims remove incident
+edges). At period start, every active vertex \(X\) sets
+\(X.\puid:=X.\prid\), so \(X.\puid.\ap=X.\ap\), and no stale spread
+update from a prior period is applied. Stage~1 leaves \(\puid\)
+untouched, and Stage~2 updates \(Y.\puid\) on a currently active edge
+\(X\to Y\in E\) only when \(X.\puid.\ap>Y.\puid.\ap\), setting
+\(Y.\puid:=X.\puid\). Fix a vertex \(v\). By induction on spread steps
+within the period: \emph{(i)}~\(Y.\puid.\ap\) is strictly increasing
+across every replacement of \(Y.\puid\) and hence always satisfies
+\(Y.\puid.\ap\ge Y.\ap\), so no vertex can acquire \(v.\prid\) more than
+once; and \emph{(ii)}~for each \(Y\neq v\) that ever acquires
+\(Y.\puid=v.\prid\), recording the active edge \(p(Y)\to Y\in E\) of
+that unique acquisition step gives that \(p(Y)\) already held
+\(v.\prid\) at an earlier step of the period and
 \[
-  v.\ap \;=\; X.\puid.\ap \;>\; Y.\puid.\ap \;\ge\; Y.\ap.
+  v.\ap \;=\; p(Y).\puid.\ap \;>\; Y.\puid.\ap \;\ge\; Y.\ap.
 \]
-Suppose edge \(u\to v\) (\(u\neq v\)) triggers Stage~3 detection of
-\(v\), so \(u.\puid=v.\puid=v.\prid\). Tracing the causal chain of
-spread copies of \(v.\prid\) backward from \(u\) to \(v\) yields a
-walk \(v=w_0\to w_1\to\cdots\to w_k=u\) (\(k\ge 1\)) in \(G\) whose
-non-\(v\) vertices all satisfy \(w_r.\ap<v.\ap\). Loop-erasing this walk
-produces a simple path from \(v\) to \(u\) in \(G\) that, closed by
-\(u\to v\), forms a simple directed cycle \(C_v\) in \(G\) on which
-\(v=\arg\max_{X\in C_v} X.\ap\). This proves~(a)---including for
-vertices outside \(\usg(S)\) such as \(90\) in Figure~\ref{fig:deduction}.
+Note that \(p(Y)\to Y\in E\) remains an edge of the initial graph \(G\)
+even if \(p(Y)\) is later terminated during the period. Suppose active
+edge \(u\to v\in E\) (\(u\neq v\)) triggers Stage~3 detection of \(v\),
+so \(u.\puid=v.\puid=v.\prid\). Iterating \(p(\cdot)\) backward from
+\(u\) steps strictly backward in acquisition time through vertices of
+priority \(<v.\ap\) until reaching the sole initial holder \(v\),
+yielding a simple directed path \(v=w_0\to w_1\to\cdots\to w_k=u\)
+(\(k\ge 1\)) in \(G\) whose non-\(v\) vertices all satisfy
+\(w_r.\ap<v.\ap\). Closing this path with \(u\to v\in E\) produces a
+simple directed cycle \(C_v\) in \(G\) with
+\(v=\arg\max_{X\in C_v} X.\ap\), proving~(a)---including for vertices
+outside \(\usg(S)\) such as \(90\) in Figure~\ref{fig:deduction}.
 
 For~(b), no vertex can be terminated twice because incident edges are
 removed upon termination. Thus each terminated vertex \(v\) admits a
@@ -331,27 +345,29 @@ Apply Lemma~5.8 to \(X=X_m\) and set \(Y=X_{m-1}\).
 
 \subsection{Cycle Detection and Resolution}
 \label{sec:resolution}
-To accommodate \(\text{LCL}^+\) Stage~0 as well as multi-period
-execution without resetting \(\lclv\), call an initial \(\lclv\) state
-\emph{annulus-consistent} for \(S\) if every \(X\in\asg(S)\) obeys the
-longest-walk bound
+Consider a fixed active graph \(G_k\) at the entry to Stage~1 with
+arbitrary current labels \(L_0:X\mapsto X.\lclv\in\mathbb{N}\) (allowing
+any values left by prior periods or \(\text{LCL}^+\) Stage~0). For a
+topmost SCC \(S\) of \(G_k\), because \(\asg(S)\) is finite and acyclic
+and every predecessor in \(G_k\) of any \(Y\in\asg(S)\) also lies in
+\(\asg(S)\), the DAG fixed-point recurrence
 \[
-  L^*(X)\;=\;\max\bigl(\{0\}\cup\{Y.\lclv_0 + \ell :
-  \text{walk } Y\Rightarrow X \text{ of length }\ell\}\bigr),
+  H(Y)\;=\;\max\bigl(\{L_0(Y)\}\cup\{H(X)+1 : X\to Y\text{ in }G_k\}\bigr)
 \]
-where \(\lclv_0\) records values at zero-indegree sources at period
-start. Fresh initialization (\(\lclv\equiv 0\)), prior Stage~0
-proliferation steps, and earlier periods' proliferation and spread steps
-on \(\asg(S)\) all preserve \(X.\lclv\le L^*(X)\) because every edge
-into \(\asg(S)\) originates in \(\asg(S)\), which is acyclic.
+is uniquely well-defined on \(\asg(S)\). Initially \(Y.\lclv=L_0(Y)\le
+H(Y)\) holds unconditionally for every \(Y\in\asg(S)\), and every
+subsequent proliferation or spread step on \(G_k\) preserves
+\(Y.\lclv\le H(Y)\) by induction.
 
 \phead{Lemma 5.10}%
-\emph{Let \(S\) be a topmost SCC and let \(w=\asgwidth(S)\). From any
-annulus-consistent state, after \(\max(w,1)\) or more rounds of Stage~1
-proliferation deductions:}
+\emph{Let \(S\) be a topmost SCC of \(G_k\) with \(w=\asgwidth(S)\).
+From any initial \(\lclv\) assignment \(L_0\) at Stage~1 entry, after
+\(\max(w,1)\) or more rounds of Stage~1 proliferation deductions on
+\(G_k\):}
 \begin{enumerate}
   \item[\emph{(i)}] \emph{the \(\lclv\) of every vertex in \(\asg(S)\) is
-    invariant under any further proliferation or spread steps;}
+    fixed at \(H(X)\) and invariant under any further proliferation or
+    spread steps on \(G_k\);}
   \item[\emph{(ii)}] \emph{for every \(X\in\asg(S)\) and \(Y\in\usg(S)\)
     with \(X\to Y\), \(X.\lclv < Y.\lclv\); and}
   \item[\emph{(iii)}] \emph{\(\max\{\asg(S).\lclv\} < \max\{S.\lclv\}\).}
@@ -367,23 +383,23 @@ Now suppose \(\asg(S)\neq\varnothing\), so \(w\ge 1\). Partition
 \(\asg(S)\) into \(S_j=\{X\in\asg(S):\asgdist(X,S)=j\}\) for
 \(j=1,\dots,w\); by Lemma~5.8, each \(S_j\) is nonempty. We show by
 induction on \(k\in\{0,1,\dots,w-1\}\) that after \(k\) proliferation
-rounds, every \(Y\in S_{w-k}\) has reached \(L^*(Y)\) and never changes
-thereafter. For \(k=0\) and \(Y\in S_w\), Lemma~5.7 rules out any
-incoming edge \(X\to Y\) (since any predecessor of \(Y\in\asg(S)\) lies
-in \(\asg(S)\) and would have \(\asgdist(X,S)\ge w+1\)), so \(Y\) has
-indegree \(0\) and \(Y.\lclv\) is permanently fixed. For
-\(1\le k\le w-1\) and \(Y\in S_{w-k}\), every predecessor \(X\to Y\)
-lies in \(\asg(S)\) and satisfies \(\asgdist(X,S)\ge w-k+1=w-(k-1)\) by
-Lemma~5.7, so \(X\in\bigcup_{r=0}^{k-1} S_{w-r}\). By the induction
-hypothesis, every such \(X.\lclv\) is already fixed at \(L^*(X)\) before
-round~\(k\) begins. Because round~\(k\) applies proliferation on every
-incoming edge \(X\to Y\) at least once and
-\(Y.\lclv\le L^*(Y)=\max_{X\to Y}(L^*(X)+1)\), \(Y.\lclv\) reaches
-\(L^*(Y)\) by the end of round~\(k\) and cannot increase in any later
-proliferation or spread step.
+rounds, every \(Y\in S_{w-k}\) satisfies \(Y.\lclv=H(Y)\) and never
+changes thereafter. If \(Y\in S_{w-k}\) has no incoming edge in \(G_k\)
+(which holds for every \(Y\in S_w\) at \(k=0\) by Lemma~5.7, as well as
+any shorter-branch source), then \(Y.\lclv\) never changes and already
+equals \(L_0(Y)=H(Y)\). Otherwise \(k\ge 1\), and every predecessor
+\(X\to Y\) lies in \(\asg(S)\) with \(\asgdist(X,S)\ge w-k+1=w-(k-1)\)
+by Lemma~5.7, so \(X\in\bigcup_{r=0}^{k-1} S_{w-r}\). By the induction
+hypothesis, every such \(X.\lclv\) is already fixed at \(H(X)\) before
+round~\(k\) begins. Because \(Y\) enters round~\(k\) with
+\(Y.\lclv\ge L_0(Y)\), round~\(k\) applies proliferation on every
+incoming edge \(X\to Y\) at least once, and \(Y.\lclv\le H(Y)\),
+\(Y.\lclv\) reaches \(\max(\{L_0(Y)\}\cup\{H(X)+1:X\to Y\})=H(Y)\) by
+the end of round~\(k\) and remains fixed under all later proliferation
+or spread steps on \(G_k\).
 
-Thus after \(w-1\) rounds, every \(X\in\asg(S)\) is fixed at \(L^*(X)\),
-proving~(i) and giving \(X.\lclv+1\le Y.\lclv\) for every edge
+Thus after \(w-1\) rounds, every \(X\in\asg(S)\) is fixed at \(H(X)\),
+proving~(i) and giving \(X.\lclv+1\le H(Y)=Y.\lclv\) for every edge
 \(X\to Y\) within \(\asg(S)\). In round~\(w\), every edge \(X\to Y\)
 from \(X\in\asg(S)\) to \(Y\in S\) fires with \(X.\lclv\) already fixed,
 establishing \(Y.\lclv\ge X.\lclv+1 > X.\lclv\), which persists as
@@ -452,60 +468,67 @@ Stage~2), \(X\notin\asg(S)\), so \(X\in S\); since \(X\in S\) and
 \label{sec:liveness}
 \phead{Theorem 5.12 (Multi-period liveness)}%
 \emph{Suppose a static WFG \(G=(V,E)\) contains \(N\ge 1\) simple
-directed cycles, and in each detection period the service executes
-(optionally Stage~0 followed by) at least \(\max(w_S,1)\) rounds of
-proliferation and \(2d_S\) rounds of spread for every current topmost
-SCC \(S\), terminating all detected victims at the end of the period.
-Then within at most \(N\) periods all deadlock cycles are resolved and
-\(G\) becomes acyclic.}
+directed cycles. Suppose in each detection period, after optional
+Stage~0 local resolution produces residual graph \(G_k\), if cycles
+remain then Stages~1--2 execute on \(G_k\) for at least \(\max(w_S,1)\)
+proliferation rounds and \(2d_S\) spread rounds for every topmost SCC
+\(S\) of \(G_k\), terminating all Stage~3 victims at the end of the
+period. Then within at most \(N\) periods all deadlock cycles are
+resolved and the graph becomes acyclic.}
 
 \begin{proof}
-Consider any period starting on a remaining graph \(G_k\) that still
-contains at least one cycle. If Stage~0 detects one or more local
-cycles, Theorem~5.1(a) guarantees each terminated victim breaks at least
-one simple cycle in \(G_k\). If cycles still remain when Stage~1 begins,
-\(G_k\) contains an SCC, so Theorem~5.5 yields at least one topmost SCC
-\(S\). Because prior periods and Stage~0 preserve annulus-consistency on
-\(\asg(S)\), Lemma~5.10 and Theorem~5.11 guarantee that Stage~3 detects
-\(B=\arg\max_{X\in S} X.\ap\in S\). Since \(B\) lies on at least one
-simple cycle in \(S\), removing \(B\) and its incident edges strictly
-reduces the set of active simple cycles of \(G_k\) (while creating no
-new edges). Because \(G\) starts with \(N\) simple cycles, at most \(N\)
-periods can execute before no cycle remains.
+Consider any period starting on an active graph that still contains at
+least one cycle. If Stage~0 terminates one or more local victims,
+Theorem~5.1a(a) guarantees each terminated victim breaks at least one
+active simple cycle. If cycles still remain on the post-Stage~0 residual
+graph \(G_k\), then \(G_k\) contains an SCC, so Theorem~5.5 yields at
+least one topmost SCC \(S\) of \(G_k\). Because Lemma~5.10 holds on
+\(G_k\) from any retained \(\lclv\) assignment \(L_0\), Theorem~5.11
+guarantees that Stage~3 detects \(B=\arg\max_{X\in S} X.\ap\in S\).
+Since \(B\) lies on at least one simple cycle in \(S\), removing \(B\)
+and its incident edges strictly reduces the set of active simple cycles
+(while creating no new edges). Because \(G\) starts with \(N\) simple
+cycles, at most \(N\) periods can execute before no cycle remains.
 \end{proof}
 
+\balance
 \subsection{Scope of the Executable Specification}
 \label{sec:model}
 \begingroup\sloppy
 The companion module \texttt{LCL.tla} checks finite WFG topologies under
 two specifications over the same state variables.
-\texttt{RoundSpec} (and \texttt{LiveSpec} with weak fairness) enforces
-Definition~4.10's round boundaries across all asynchronous edge-delivery
-orders, verifying Theorem~5.5 (\texttt{TopmostSCCExists}), Lemma~5.10
-(\texttt{AnnulusIsolation}), Theorem~5.11
-(\texttt{TopmostSCCUniqueVictim}), and Theorem~5.12
-(\texttt{EventuallyDeadlockFree}) across single-cycle, high-\(\ap\)
-annulus, multi-cycle SCC, chained-SCC, and hybrid \(\text{LCL}^+\)
-graphs.
+On configured instances whose constants supply the required round bounds,
+\texttt{RoundSpec} (and \texttt{LiveSpec} with weak fairness) explores
+all single-pass per-round edge permutations, verifying Theorem~5.5
+(\texttt{TopmostSCCExists}), Lemma~5.10 (\texttt{AnnulusIsolation}),
+Theorem~5.11 (\texttt{TopmostSCCUniqueVictim}), and Theorem~5.12
+(\texttt{PeriodBoundInvariant} and \texttt{EventuallyDeadlockFree})
+across high-\(\ap\) annulus, multi-cycle SCC, residual-bridge
+chained-SCC, and hybrid \(\text{LCL}^+\) graphs (note that extra
+in-round edge repetitions allowed by Definition~4.10 only accelerate
+monotone updates toward the same DAG bound \(H\)).
 
-\texttt{Spec} drops round-count bounds to mirror OceanBase's
-timer-sliced service~\cite[\S4.6]{lclplus}: edge updates may be lost or
-reordered, proliferation may switch early to spread, Stage~3 checks run
-inline on each spread message, and victims abort without a global
-barrier. TLC confirms Theorem~5.1 via \texttt{NoManslaughter},
+\texttt{Spec} drops round-count bounds to model immediate current-state
+edge updates under a global phase (\texttt{MaxLCLV},
+\texttt{MaxPeriods})~\cite[\S4.6]{lclplus}: edge updates may be omitted
+or reordered, proliferation may switch early to spread, Stage~3 runs
+inline on each spread update, and victims abort without a barrier. TLC
+confirms Theorem~5.1a via \texttt{NoManslaughter},
 \texttt{ValidCycleVictim}, and \texttt{BoundedTotalVictims} across every
-reachable state, while exhibiting a 10-state trace
-(\texttt{NoAsyncTwoVictimsInOneSCC}) on an SCC with two overlapping
-cycles (\(5\leftrightarrow 15\) and \(20\to 15\to 10\to 20\)) in which
-inline mid-spread rollback terminates both cycle-maxima (\(15\) and
-\(20\), still \(\le N=2\)), whereas \texttt{RoundSpec}'s end-of-spread
-barrier terminates only \(20\). Ablation runs also confirm that
-selecting a Stage~0 victim from the entire DFS stack rather than the
-revisited cycle suffix violates \texttt{NoManslaughter} in 5 states on a
-local lasso (\(60\to 10\leftrightarrow 25\)).
+reachable state. On an SCC with two overlapping cycles
+(\(5\leftrightarrow 15\) and \(20\to 15\to 10\to 20\)), witness
+\texttt{NoAsyncTwoVictimsInOneSCC} exhibits a 10-state single-period
+trace in which \(15\) detects \(5\leftrightarrow 15\), forwards token
+\(20\) to \(10\), and aborts---rendering \texttt{activeEdges}
+acyclic---before \(10\to 20\) detects and aborts \(20\) (still \(\le
+N=2\) initial cycles), whereas \texttt{RoundSpec}'s end-of-spread
+barrier selects only \(20\) in period~1 (leaving \(5\leftrightarrow 15\)
+for period~2). Ablation runs also confirm that selecting a Stage~0
+victim from the entire DFS stack rather than the revisited cycle suffix
+violates \texttt{NoManslaughter} in 5 states on a local lasso
+(\(60\to 10\leftrightarrow 25\)).
 \par\endgroup
 
-\balance
 \begin{thebibliography}{3}
 \bibitem{tarjan}
 Robert Tarjan. 1972.

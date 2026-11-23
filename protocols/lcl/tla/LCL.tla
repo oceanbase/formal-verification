@@ -25,7 +25,7 @@
 (*    period resolution, checking Lemma 5.10, Theorem 5.11, and            *)
 (*    multi-period liveness (Section 5.1.2).                               *)
 (***************************************************************************)
-EXTENDS Naturals, Sequences, FiniteSets, TLC
+EXTENDS Naturals, Sequences, FiniteSets
 
 CONSTANTS
   Vertex,        \* finite subset of Nat \ {0}; integer value represents PrID = AP
@@ -37,9 +37,13 @@ CONSTANTS
   ProlifRounds,  \* Nat: Stage 1 rounds per period in RoundSpec / LiveSpec
   SpreadRounds   \* Nat: Stage 2 rounds per period in RoundSpec / LiveSpec
 
-ASSUME /\ Vertex \subseteq (Nat \ {0})
+ASSUME /\ IsFiniteSet(Vertex)
+       /\ Vertex \subseteq (Nat \ {0})
        /\ Vertex # {}
-       /\ \A e \in Edges : e[1] \in Vertex /\ e[2] \in Vertex /\ e[1] # e[2]
+       /\ Edges \subseteq (Vertex \X Vertex)
+       /\ \A e \in Edges : e[1] # e[2]
+       /\ ServerOf \in [Vertex -> Nat]
+       /\ EnableStage0 \in BOOLEAN
        /\ MaxLCLV \in Nat
        /\ MaxPeriods \in Nat \ {0}
        /\ ProlifRounds \in Nat \ {0}
@@ -190,13 +194,13 @@ Stage0Start(u, onlySources) ==
 Stage0DetectLocalCycle(b) ==
   /\ phase = "Stage0"
   /\ dfsStack # << >>
+  /\ b \in SeqElems(dfsStack)
   /\ LET curr   == dfsStack[Len(dfsStack)]
          idx    == IndexInSeq(dfsStack, b)
          cycSet == {dfsStack[i] : i \in idx..Len(dfsStack)}
          victim == SetMax(cycSet)
      IN /\ <<curr, b>> \in activeEdges
         /\ ServerOf[b] = ServerOf[curr]
-        /\ b \in SeqElems(dfsStack)
         /\ detected' = detected \cup {victim}
         /\ dfsStack' = << >>
         /\ UNCHANGED <<activeEdges, phase, period, round, pendingEdges,
@@ -467,6 +471,7 @@ TypeOK ==
   /\ round \in Nat
   /\ pendingEdges \subseteq activeEdges
   /\ SeqElems(dfsStack) \subseteq Vertex
+  /\ Cardinality(SeqElems(dfsStack)) = Len(dfsStack)
   /\ stage0Visited \subseteq Vertex
   /\ lclv \in [Vertex -> Nat]
   /\ puid \in [Vertex -> Vertex]
@@ -518,11 +523,12 @@ TopmostSCCExists ==
 
 \* Lemma 5.10(ii)-(iii) (checked under RoundSpec / LiveSpec):
 \* Once Proliferation finishes (throughout Spread and Detect), for every topmost SCC,
-\* every edge from ASG(scc) into USG(scc) satisfies u.LCLV < v.LCLV, and
-\* max{ASG(scc).LCLV} < max{scc.LCLV}.
+\* max{scc.LCLV} > 0, every edge from ASG(scc) into USG(scc) satisfies
+\* u.LCLV < v.LCLV, and max{ASG(scc).LCLV} < max{scc.LCLV}.
 AnnulusIsolation ==
   (phase \in {"Spread", "Detect"}) =>
     \A scc \in TopmostSCCs(activeEdges) :
+      /\ \E w \in scc : lclv[w] > 0
       /\ \A u \in ASG(activeEdges, scc), v \in USG(activeEdges, scc) :
            <<u, v>> \in activeEdges => lclv[u] < lclv[v]
       /\ \A u \in ASG(activeEdges, scc) :
@@ -536,7 +542,12 @@ TopmostSCCUniqueVictim ==
     \A scc \in TopmostSCCs(activeEdges) :
       detected \cap USG(activeEdges, scc) = {SetMax(scc)}
 
-\* Liveness (Section 5.1.2, checked under LiveSpec):
+\* Theorem 5.12 Quantitative Period Bound (checked under RoundSpec / LiveSpec):
+\* In a WFG with N >= 1 initial simple cycles, at most N periods ever execute.
+PeriodBoundInvariant ==
+  (InitialSimpleCycleCount > 0) => (period <= InitialSimpleCycleCount)
+
+\* Liveness (Section 5.1.2 / Theorem 5.12, checked under LiveSpec):
 \* Every deadlock cycle in the WFG is eventually detected and broken.
 EventuallyDeadlockFree ==
   <>([](AllNontrivialSCCs(activeEdges) = {}))
@@ -544,32 +555,48 @@ EventuallyDeadlockFree ==
 -----------------------------------------------------------------------------
 (* Reachability Witnesses (each invariant is VIOLATED when path is reached) *)
 
-\* Stage 0 (LCL+) immediately detects a local cycle on a single server.
+\* Stage 0 (LCL+) immediately detects the local cycle victim while sparing
+\* zero-indegree lasso stem vertices.
 NoStage0LocalDetect ==
-  ~(phase = "Stage0" /\ detected # {})
+  ~(phase = "Stage0" /\ detected # {} /\
+    \A s \in ZeroIndegree(Edges) : s \notin (detected \cup killed))
 
-\* Stage 0 (LCL+) pre-proliferates LCLV across a local edge into a remote vertex.
+\* Stage 0 (LCL+) in period 1 pre-proliferates LCLV across a local chain into
+\* a remote vertex before Stage 1 begins.
 NoStage0RemotePush ==
-  ~(phase = "Stage0" /\ \E u, v \in Vertex :
+  ~(period = 1 /\ phase = "Stage0" /\
+    \E u, v \in Vertex :
       <<u, v>> \in Edges /\ ServerOf[u] # ServerOf[v] /\ lclv[v] > 0)
 
-\* High-AP annulus upstream node is blocked from polluting a topmost SCC.
+\* High-AP annulus upstream node is isolated by LCLV, so Stage 3 elects only
+\* the topmost SCC's own maximum-AP vertex.
 NoAnnulusHighAPBlocked ==
-  ~(phase = "Detect" /\ detected # {} /\
+  ~(phase = "Detect" /\
     \E scc \in TopmostSCCs(activeEdges) :
-      \E u \in ASG(activeEdges, scc) : u > SetMax(scc))
+      /\ (\E u \in ASG(activeEdges, scc) : u > SetMax(scc))
+      /\ detected \cap USG(activeEdges, scc) = {SetMax(scc)}
+      /\ \A u \in ASG(activeEdges, scc) : u \notin (detected \cup killed))
 
-\* Distributed cycle is detected in Stage 3 / Spread and resolved cleanly.
+\* Distributed cycle resolves completely while every non-cycle vertex in Edges
+\* (including downstream multi-outdegree tails) remains unkilled.
 NoDeadlockResolved ==
-  ~(AllNontrivialSCCs(Edges) # {} /\ AllNontrivialSCCs(activeEdges) = {})
+  ~(AllNontrivialSCCs(Edges) # {} /\
+    AllNontrivialSCCs(activeEdges) = {} /\
+    \A v \in Vertex : ~InCycle(Edges, v) => v \notin (detected \cup killed))
 
-\* Chained SCCs (Figure 17(b)) resolve across two successive periods.
+\* Chained SCCs (Figure 17(b)) with a surviving pumped annulus bridge resolve
+\* across two successive periods, killing both SCC maxima and sparing the annulus.
 NoChainedMultiPeriod ==
-  ~(period >= 2 /\ Cardinality(killed) = 2 /\ AllNontrivialSCCs(activeEdges) = {})
+  ~(period = 2 /\ Cardinality(killed) = 2 /\
+    AllNontrivialSCCs(activeEdges) = {} /\
+    \A v \in Vertex : ~InCycle(Edges, v) => v \notin killed)
 
-\* Asynchronous concurrent mid-Spread resolution on a multi-cycle SCC kills two
-\* cycle-max victims (still <= N = 2 cycles), distinguishing Section 4.6 from Algorithm 1.
+\* Under Spec's inline mid-spread detection and concurrent rollback, a single
+\* SCC containing two overlapping cycles can lose both cycle-maxima in period 1
+\* (including detecting the second after the first abort made activeEdges acyclic).
 NoAsyncTwoVictimsInOneSCC ==
-  ~(Cardinality(AllNontrivialSCCs(Edges)) = 1 /\ Cardinality(killed) = 2)
+  ~(period = 1 /\ phase = "Spread" /\
+    Cardinality(AllNontrivialSCCs(Edges)) = 1 /\
+    Cardinality(killed) = 2 /\ AllNontrivialSCCs(activeEdges) = {})
 
 =============================================================================
