@@ -11,6 +11,6 @@ For a single OceanBase log stream, full replicas store redo. The arbitration rep
 
 ## TLA+ results
 
-A separate TLA+ model captures PALF's arbitration mechanisms. TLC completed six safety checks and two liveness checks on bounded 2F1A and 4F1A configurations without finding a property violation. The largest full-model safety run explored 320,782,868 distinct states. A separate pruned 4F1A safety run explored 476,836,999 distinct states, with a 3.6% TLC estimate of the probability of missing a state due to fingerprint collisions.
+TLC completed six bounded safety checks and two bounded liveness checks across 2F1A and 4F1A configurations without finding a counterexample. The 4F1A safety check with three proposal numbers, one log position and a maximum configuration sequence number of three explored 476,836,999 distinct states.
 
 [Specification](tla/Arbitration.tla) · [Results by configuration](tla/results.md) · [Run the checks](tla/README.md) · [BibTeX](artifact.bib)

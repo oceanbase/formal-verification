@@ -1,14 +1,14 @@
 # TLC Model-Checking Results
 
-- **Seven full-model instances (five safety, two liveness)**: 2026-11-14, TLC 2.14 (TLA+ Tools release 1.6.0), OpenJDK 8u502, 15 workers on a 32-vCPU / 236 GiB host. The [results index](completed-results.csv) records the model bounds, state counts and TLC fingerprint-collision estimates.
-- **One pruned 4F1A safety instance** completed on 2026-11-23 with 60 workers. Together these are the eight bounded instances reported in Section 4.6 of the paper.
+Section 4.6 of the paper reports six bounded safety checks and two liveness checks. The seven runs on 2026-11-14 used TLC 2.14 (TLA+ Tools 1.6.0), OpenJDK 8u502 and 15 workers on a 32-vCPU / 236 GiB host. The 4F1A run at (3, 1, 3) used 60 workers and finished on 2026-11-23 at 05:38 Beijing time (UTC+8). [Results index](completed-results.csv)
+
 - **Specification**: `Arbitration.tla` (918 lines including comments; protocol actions, invariants, and properties are semantically identical to the 2026-11-14 verified snapshot, with comments aligned to Sections 3–4 of the paper). Terminology mapping: [`README.md`](README.md).
 
 This specification models OceanBase PALF mechanisms (two-tuple log barrier, stale-entry truncation upon configuration installation, `StartWorking`, on-demand `ConfirmConfig`, and arbiter pushes with proposal catch-up) and complements the companion protocol-model proof (*Safety and Liveness of an Arbitration Protocol Model*). All eight runs finished with an empty search queue and no reported property violation. Reported depth is the completion depth reported by TLC, not a configured depth cutoff.
 
 ## Completed Finite-Instance Checks
 
-### Safety (`Spec`, with full-replica symmetry `Permutations(F)`)
+### Safety
 
 | Config | Layout | `MaxProposal` | `MaxLogLen` | `MaxConfigSeq` | Distinct States | Generated States | TLC Depth | Wall Time | Result |
 |---|---|---:|---:|---:|---:|---:|---:|---:|---|
@@ -17,12 +17,13 @@ This specification models OceanBase PALF mechanisms (two-tuple log barrier, stal
 | `ArbitrationBigLog.cfg` | 2F1A | 3 | 3 | 5 | 24,564,480 | 103,719,388 | 48 | 10m 12s | Pass (exhausted) |
 | `Arbitration4FP2C2.cfg` | 4F1A | 2 | 1 | 2 | 38,336,462 | 321,215,953 | 37 | 01h 46m | Pass (exhausted) |
 | `Arbitration4FP2C3.cfg` | 4F1A | 2 | 1 | 3 | 320,782,868 | —* | 40 | 14h 07m* | Pass (exhausted) |
+| [Pruned4FP3L1C3.cfg](Pruned4FP3L1C3.cfg) | 4F1A | 3 | 1 | 3 | 476,836,999 | 4,376,870,206 | 45 | 8h 45m | Pass (exhausted) |
 
 *\*`Arbitration4FP2C3.cfg` completed across a checkpoint resume (`38,944 s` prior attempt + `11,894 s` continuation = `50,838 s`, i.e., `14h 07m` cumulative attempt wall time; the continuation footer alone reports `03h 18m` and `921,423,476` post-recovery generated states).*
 
-**Fingerprint collision estimates for the five full-model safety runs**: TLC uses 64-bit state fingerprints. Reported tool estimates (retained verbatim in [`completed-results.csv`](completed-results.csv)) range from `3.3E-6` (`Arbitration.cfg`) to `0.010` optimistic / `0.016` actual (`Arbitration4FP2C3.cfg`, continuation log); these are probabilistic tool estimates rather than observed collisions.
+All six configurations use full-replica symmetry. The first five use `Spec` and check the eight invariants and three monotonicity properties below. The (3, 1, 3) configuration checks the eight invariants with [Pruned4F](Pruned4F.tla), which omits arbiter pushes, arbiter proposal catch-up and replica upgrades, and combines a full-replica crash and restart into one step. Its final queue was empty and TLC exited with code 0.
 
-**Checked safety invariants and properties (8 invariants + 3 monotonicity properties)**:
+TLC uses 64-bit state fingerprints. For the (3, 1, 3) run, its estimate based on the actual fingerprints was a 3.6% probability of missing a state due to a collision. The [CSV](completed-results.csv) records the available estimates for each run.
 
 | Property | Paper / Companion Proof | Meaning |
 |---|---|---|
@@ -39,16 +40,6 @@ This specification models OceanBase PALF mechanisms (two-tuple log barrier, stal
 | `ConfigVersionMonotonic` | — | Each replica's installed configuration version is nondecreasing |
 
 `ElectableConfigsAdjacent` ignores liveness and promised proposal numbers, so it over-approximates actual electability. Pairwise-adjacent groups number at most two—corresponding to Lemma 4.1's invariant of at most one committed configuration plus one pending single-member change.
-
-### Pruned 4F1A safety
-
-| Configuration | (MaxProposal, MaxLogLen, MaxConfigSeq) | Workers | Generated states | Distinct states | Depth | Final queue | Wall time | Exit code |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | --- | ---: |
-| [Pruned4FP3L1C3.cfg](Pruned4FP3L1C3.cfg) | (3, 1, 3) | 60 | 4,376,870,206 | 476,836,999 | 45 | 0 | 8h 45m | 0 |
-
-The run finished on 2026-11-23 at 05:38 Beijing time (UTC+8). TLC found no invariant violation. Based on the actual fingerprints, TLC estimated a **3.6% probability of missing a state due to fingerprint collisions**.
-
-[Pruned4F.tla](Pruned4F.tla) omits arbiter configuration pushes, arbiter proposal catch-up and replica upgrades. Full-replica failures are modeled only by an immediate crash/restart (`Bounce`). The configuration checks the eight state invariants listed above on these restricted behaviors. The largest completed safety run of the full `Spec` remains the 320,782,868-state instance at (2, 1, 3).
 
 ### Liveness (`LiveSpec`, no symmetry)
 

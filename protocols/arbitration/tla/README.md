@@ -25,7 +25,7 @@ TLC_WORKERS=2 TLC_HEAP=1g ./check-witnesses.sh NoLeader
 
 The witness succeeds when its output says `REACHED`. Its invariant asserts that the target state is unreachable, so a counterexample gives the desired path. The runner disables deadlock checking because the finite bounds allow terminal states.
 
-To run the paper’s three-proposal pruned 4F1A instance on a suitably sized host, select the `Pruned4F` module explicitly. Set `TLC_HEAP` and `TLC_DIRECT` for the available memory.
+To run the 4F1A safety check at (3, 1, 3), use the following command. Set `TLC_HEAP` and `TLC_DIRECT` for the available memory.
 
 ```sh
 MODULE=Pruned4F TLC_WORKERS=60 ./run.sh Pruned4FP3L1C3
@@ -44,8 +44,8 @@ MODULE=Pruned4F TLC_WORKERS=60 ./run.sh Pruned4FP3L1C3
 | `Liveness.cfg` | 2F1A liveness check, `(P, L, C) = (3, 1, 4)` (no symmetry) |
 | `Liveness4F.cfg` | 4F1A liveness check, `(P, L, C) = (5, 1, 7)` (no symmetry) |
 | `Arbitration4F.cfg` | Exploratory larger-bound 4F1A config, `(P, L, C) = (2, 1, 4)` (outside the eight completed runs) |
-| [Pruned4FP3L1C3.cfg](Pruned4FP3L1C3.cfg) | Completed 4F1A safety check with `Pruned4F.tla`, (3, 1, 3). See the [pruned-model result](results.md#pruned-4f1a-safety). |
-| `Pruned4F.cfg` | Exploratory configuration of the same pruned model at (3, 1, 4) |
+| [Pruned4FP3L1C3.cfg](Pruned4FP3L1C3.cfg) | 4F1A safety check, `(P, L, C) = (3, 1, 3)`. [Results](results.md#safety) |
+| `Pruned4F.cfg` | Exploratory 4F1A configuration, `(P, L, C) = (3, 1, 4)` |
 | `Coverage.cfg`, `Coverage4F.cfg`, `LiveCoverage.cfg` | Shared base configs for reachability witnesses |
 | `completed-results.csv` | Machine-readable table of the eight completed runs (including TLC fingerprint-collision estimates) |
 | `run.sh` | Run a config: `[TLC_WORKERS=N] [TLC_HEAP=12g] [TLC_DIRECT=32g] ./run.sh <Config>` |
