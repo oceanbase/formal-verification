@@ -1,10 +1,9 @@
 # TLC Model-Checking Results
 
-Section 4.6 of the paper reports six bounded safety checks and two liveness checks. The seven runs on 2026-11-14 used TLC 2.14 (TLA+ Tools 1.6.0), OpenJDK 8u502 and 15 workers on a 32-vCPU / 236 GiB host. The 4F1A run at (3, 1, 3) used 60 workers and finished on 2026-11-23 at 05:38 Beijing time (UTC+8). [Results index](completed-results.csv)
+- **Primary verified suite (8 completed finite instances)**: The first seven ran on 2026-11-14 with TLC 2.14 (TLA+ Tools release 1.6.0), OpenJDK 8u502, and 15 workers on a 32-vCPU / 236 GiB host. The [results index](completed-results.csv) records the model bounds, state counts and TLC fingerprint-collision estimates.
+- **Specification**: `Arbitration.tla` (918 lines including comments; protocol actions, invariants, and properties are semantically identical to the 2026-11-14 verified snapshot). Terminology mapping: [`README.md`](README.md).
 
-- **Specification**: `Arbitration.tla` (918 lines including comments; protocol actions, invariants, and properties are semantically identical to the 2026-11-14 verified snapshot, with comments aligned to Sections 3–4 of the paper). Terminology mapping: [`README.md`](README.md).
-
-This specification models OceanBase PALF mechanisms (two-tuple log barrier, stale-entry truncation upon configuration installation, `StartWorking`, on-demand `ConfirmConfig`, and arbiter pushes with proposal catch-up) and complements the companion protocol-model proof (*Safety and Liveness of an Arbitration Protocol Model*). All eight runs finished with an empty search queue and no reported property violation. Reported depth is the completion depth reported by TLC, not a configured depth cutoff.
+This specification models OceanBase PALF mechanisms (two-tuple log barrier, stale-entry truncation upon configuration installation, `StartWorking`, on-demand `ConfirmConfig`, and arbiter pushes with proposal catch-up) and complements the companion protocol-model proof (*Safety and Liveness of an Arbitration Protocol Model*). Every row in the tables below exhausted its finite state space completely (`exit 0`, TLC completion marker, no errors, empty final queue). Reported depth is the completion depth reported by TLC, not a configured depth cutoff.
 
 ## Completed Finite-Instance Checks
 
@@ -17,15 +16,17 @@ This specification models OceanBase PALF mechanisms (two-tuple log barrier, stal
 | `ArbitrationBigLog.cfg` | 2F1A | 3 | 3 | 5 | 24,564,480 | 103,719,388 | 48 | 10m 12s | Pass (exhausted) |
 | `Arbitration4FP2C2.cfg` | 4F1A | 2 | 1 | 2 | 38,336,462 | 321,215,953 | 37 | 01h 46m | Pass (exhausted) |
 | `Arbitration4FP2C3.cfg` | 4F1A | 2 | 1 | 3 | 320,782,868 | —* | 40 | 14h 07m* | Pass (exhausted) |
-| [Pruned4FP3L1C3.cfg](Pruned4FP3L1C3.cfg) | 4F1A | 3 | 1 | 3 | 476,836,999 | 4,376,870,206 | 45 | 8h 45m | Pass (exhausted) |
+| `Pruned4FP3L1C3.cfg` | 4F1A | 3 | 1 | 3 | 476,836,999 | 4,376,870,206 | 45 | 8h 45m | Pass (exhausted) |
 
 *\*`Arbitration4FP2C3.cfg` completed across a checkpoint resume (`38,944 s` prior attempt + `11,894 s` continuation = `50,838 s`, i.e., `14h 07m` cumulative attempt wall time; the continuation footer alone reports `03h 18m` and `921,423,476` post-recovery generated states).*
 
-All six configurations use full-replica symmetry. The first five use `Spec` and check the eight invariants and three monotonicity properties below. The (3, 1, 3) configuration checks the eight invariants with [Pruned4F](Pruned4F.tla), which omits arbiter pushes, arbiter proposal catch-up and replica upgrades, and combines a full-replica crash and restart into one step. Its final queue was empty and TLC exited with code 0.
+The (3, 1, 3) run used 60 workers and finished at 05:38 Beijing time (UTC+8) on 2026-11-23 with an empty queue and exit code 0. It used [PrunedSpec](Pruned4F.tla) with full-replica symmetry and checked the eight state invariants below.
 
-TLC uses 64-bit state fingerprints. For the (3, 1, 3) run, its estimate based on the actual fingerprints was a 3.6% probability of missing a state due to a collision. The [CSV](completed-results.csv) records the available estimates for each run.
+**Fingerprint collision estimates**: TLC uses 64-bit state fingerprints. For the five `Spec` safety runs, reported tool estimates (retained verbatim in [`completed-results.csv`](completed-results.csv)) range from `3.3E-6` (`Arbitration.cfg`) to `0.010` optimistic / `0.016` actual (`Arbitration4FP2C3.cfg`, continuation log); these are probabilistic tool estimates rather than observed collisions. The (3, 1, 3) run reported an actual-fingerprint estimate of 3.6%.
 
-| Property | Paper / Companion Proof | Meaning |
+**Checked safety invariants and properties (8 invariants + 3 monotonicity properties)**:
+
+| Property | Related theorem or lemma | Meaning |
 |---|---|---|
 | `TypeOK` | — | Type safety of all state variables |
 | `LogMatching` | — | Two entries with the same proposal number at the same LSN imply identical prefixes |
@@ -120,7 +121,7 @@ Liveness scenario witnesses (`LiveCoverage.cfg`, 2F1A under `LiveSpec`):
 - **Upgrade catch-up**: `Upgrade` requires the learner to match the leader's full log (PALF allows a small gap protected by the barrier check).
 - **Not modeled**: permanent disk loss, lease reads, general add/remove/replace beyond degrade/upgrade, flashback (`mode meta`), and odd numbers of full replicas.
 
-## Exploratory Runs (Outside the Eight Completed Instances)
+## Exploratory Runs (Outside the 8 Completed Instances)
 
-- An additional 4F1A exploration at `(P, L, C) = (3, 1, 2)` was stopped by wall-time budget after exploring `364,224,473` distinct states (progress depth 29, queue `55,978,846`) with no property violation reported. Because it did not exhaust the queue, it is **not** counted among the eight completed checks and its progress depth is not claimed as a complete coverage bound.
+- An additional 4F1A exploration at `(P, L, C) = (3, 1, 2)` was stopped by wall-time budget after exploring `364,224,473` distinct states (progress depth 29, queue `55,978,846`) with no property violation reported. Because it did not exhaust the queue, it is **not** counted among the 8 completed checks and its progress depth is not claimed as a complete coverage bound.
 - `Arbitration4F.cfg` (`P=2, L=1, C=4`) and `Pruned4F.tla` / `Pruned4F.cfg` (`P=3, L=1, C=4`) are retained in the repository as exploratory larger-bound configurations (e.g., for reproducing the 21-step `C=4` data-loss ablation when `ConfigConfirmed` is removed).
