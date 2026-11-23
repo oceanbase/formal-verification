@@ -5,7 +5,7 @@ Single-log-stream TLA+ model of OceanBase PALF's dual-quorum Paxos with a data-l
 The model exercises PALF mechanisms (two-tuple log barrier, stale-entry truncation upon configuration installation, `StartWorking`, on-demand `ConfirmConfig`, and arbiter pushes with proposal catch-up). It complements the companion protocol-model proof ([*Safety and Liveness of an Arbitration Protocol Model*](../proof/arbitration-proof.pdf), which uses an explicit durable `acc` and metadata-only configuration propagation for the safety argument and additional progress assumptions for liveness). The checked properties describe the TLA+ model. The published checks use the finite bounds listed below.
 
 - Detailed results and model abstractions: [`results.md`](results.md)
-- Machine-readable 7-case summary: [`completed-results.csv`](completed-results.csv)
+- Machine-readable eight-case summary: [`completed-results.csv`](completed-results.csv)
 
 ## Reproduce a check
 
@@ -25,6 +25,12 @@ TLC_WORKERS=2 TLC_HEAP=1g ./check-witnesses.sh NoLeader
 
 The witness succeeds when its output says `REACHED`. Its invariant asserts that the target state is unreachable, so a counterexample gives the desired path. The runner disables deadlock checking because the finite bounds allow terminal states.
 
+To run the paper’s three-proposal pruned 4F1A instance on a suitably sized host, select the `Pruned4F` module explicitly. Set `TLC_HEAP` and `TLC_DIRECT` for the available memory.
+
+```sh
+MODULE=Pruned4F TLC_WORKERS=60 ./run.sh Pruned4FP3L1C3
+```
+
 ## Files
 
 | File | Purpose |
@@ -37,10 +43,11 @@ The witness succeeds when its output says `REACHED`. Its invariant asserts that 
 | `Arbitration4FP2C3.cfg` | 4F1A safety check, `(P, L, C) = (2, 1, 3)` (exhaustive) |
 | `Liveness.cfg` | 2F1A liveness check, `(P, L, C) = (3, 1, 4)` (no symmetry) |
 | `Liveness4F.cfg` | 4F1A liveness check, `(P, L, C) = (5, 1, 7)` (no symmetry) |
-| `Arbitration4F.cfg` | Exploratory larger-bound 4F1A config, `(P, L, C) = (2, 1, 4)` (not in the 7 completed runs) |
-| `Pruned4F.tla`, `Pruned4F.cfg` | Exploratory pruned 4F1A model (`P=3, L=1, C=4`: omits arbiter push/catch-up and upgrades; immediate `Bounce` on crash) |
+| `Arbitration4F.cfg` | Exploratory larger-bound 4F1A config, `(P, L, C) = (2, 1, 4)` (outside the eight completed runs) |
+| [Pruned4FP3L1C3.cfg](Pruned4FP3L1C3.cfg) | Completed 4F1A safety check with `Pruned4F.tla`, (3, 1, 3). See the [pruned-model result](results.md#pruned-4f1a-safety). |
+| `Pruned4F.cfg` | Exploratory configuration of the same pruned model at (3, 1, 4) |
 | `Coverage.cfg`, `Coverage4F.cfg`, `LiveCoverage.cfg` | Shared base configs for reachability witnesses |
-| `completed-results.csv` | Machine-readable table of the 7 completed exhaustive runs (including TLC fingerprint-collision estimates) |
+| `completed-results.csv` | Machine-readable table of the eight completed runs (including TLC fingerprint-collision estimates) |
 | `run.sh` | Run a config: `[TLC_WORKERS=N] [TLC_HEAP=12g] [TLC_DIRECT=32g] ./run.sh <Config>` |
 | `check-witnesses.sh` | Run reachability witnesses (each should output `REACHED`); override base via `BASE=LiveCoverage` or `BASE=Coverage4F` |
 
