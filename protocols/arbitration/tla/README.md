@@ -5,7 +5,7 @@ Single-log-stream TLA+ model of OceanBase PALF's dual-quorum Paxos with a data-l
 The model exercises PALF mechanisms (two-tuple log barrier, stale-entry truncation upon configuration installation, `StartWorking`, on-demand `ConfirmConfig`, and arbiter pushes with proposal catch-up). It complements the companion protocol-model proof ([*Safety and Liveness of an Arbitration Protocol Model*](../proof/arbitration-proof.pdf), which uses an explicit durable `acc` and metadata-only configuration propagation for the safety argument and additional progress assumptions for liveness). The checked properties describe the TLA+ model. The published checks use the finite bounds listed below.
 
 - Detailed results and model abstractions: [`results.md`](results.md)
-- Machine-readable 7-case summary: [`completed-results.csv`](completed-results.csv)
+- Machine-readable 8-case summary: [`completed-results.csv`](completed-results.csv)
 
 ## Reproduce a check
 
@@ -37,10 +37,11 @@ The witness succeeds when its output says `REACHED`. Its invariant asserts that 
 | `Arbitration4FP2C3.cfg` | 4F1A safety check, `(P, L, C) = (2, 1, 3)` (exhaustive) |
 | `Liveness.cfg` | 2F1A liveness check, `(P, L, C) = (3, 1, 4)` (no symmetry) |
 | `Liveness4F.cfg` | 4F1A liveness check, `(P, L, C) = (5, 1, 7)` (no symmetry) |
-| `Arbitration4F.cfg` | Exploratory larger-bound 4F1A config, `(P, L, C) = (2, 1, 4)` (not in the 7 completed runs) |
+| `Arbitration4F.cfg` | Exploratory larger-bound 4F1A config, `(P, L, C) = (2, 1, 4)` (not in the 8 completed runs) |
+| [Pruned4FP3L1C3.cfg](Pruned4FP3L1C3.cfg) | 4F1A safety check, `(P, L, C) = (3, 1, 3)`. Run with `MODULE=Pruned4F TLC_WORKERS=60 ./run.sh Pruned4FP3L1C3`. |
 | `Pruned4F.tla`, `Pruned4F.cfg` | Exploratory pruned 4F1A model (`P=3, L=1, C=4`: omits arbiter push/catch-up and upgrades; immediate `Bounce` on crash) |
 | `Coverage.cfg`, `Coverage4F.cfg`, `LiveCoverage.cfg` | Shared base configs for reachability witnesses |
-| `completed-results.csv` | Machine-readable table of the 7 completed exhaustive runs (including TLC fingerprint-collision estimates) |
+| `completed-results.csv` | Machine-readable table of the 8 completed exhaustive runs (including TLC fingerprint-collision estimates) |
 | `run.sh` | Run a config: `[TLC_WORKERS=N] [TLC_HEAP=12g] [TLC_DIRECT=32g] ./run.sh <Config>` |
 | `check-witnesses.sh` | Run reachability witnesses (each should output `REACHED`); override base via `BASE=LiveCoverage` or `BASE=Coverage4F` |
 

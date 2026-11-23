@@ -6,3 +6,4 @@ safety-4f-p2-c2,safety,4F1A,2,1,2,38336462,37,15,01h 46min,False,,,5.9E-4,5.6E-5
 safety-4f-p2-c3,safety,4F1A,2,1,3,320782868,40,15,03h 18min,True,38944.099945,50838.333593,.010,.016
 liveness-2f,liveness,2F1A,3,1,4,1292,23,15,05s,False,,,4.1E-14,
 liveness-4f,liveness,4F1A,5,1,7,5741034,49,15,40min 12s,False,,,2.5E-6,4.9E-6
+safety-4f-pruned-p3-l1-c3,safety,4F1A,3,1,3,476836999,45,60,08h 45min,,,,,0.036
