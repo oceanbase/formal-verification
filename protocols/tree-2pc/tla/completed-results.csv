@@ -1,0 +1,11 @@
+name,check,topology,streams,partitions,MaxTransfers,context_and_retry,distinct_states,generated_states,reported_depth,workers,TLC_time,TLC_fingerprint_estimate_optimistic,TLC_fingerprint_estimate_actual
+safety-transfer-fresh,safety,r->{a}+idle{d1},3,1,1,True,5345,13512,28,8,00s,2.4E-12,
+safety-circular-full,safety,r->a->b,3,2,1,True,68803,217710,34,8,01s,5.6E-10,3.4E-8
+safety-multihop-full,safety,"r->{a}+idle{d1,d2}",4,1,2,True,140287,457698,39,8,02s,2.4E-9,8.4E-10
+safety-static-2level,safety,"r->{a,b};a->{c}",4,3,0,True,227637,883911,36,8,04s,8.1E-9,4.7E-9
+safety-diamond-2xfer,safety,"r->{a,b}+idle{d1}",4,2,2,False,2120256,9505771,36,8,28s,8.5E-7,5.0E-8
+safety-hier-5ls-full,safety,"r->{a,b};a->{c}+idle{d1}",5,3,1,True,42754064,200630760,48,8,14min 25s,3.7E-4,1.3E-4
+liveness-transfer,liveness,r->{a}+idle{d1},3,1,1,True,5345,13512,28,8,00s,2.4E-12,
+liveness-multihop,liveness,"r->{a}+idle{d1,d2}",4,1,2,False,50073,158690,29,8,02s,2.9E-10,7.5E-11
+liveness-circular,liveness,r->a->b,3,2,1,True,68803,217710,34,8,03s,5.6E-10,3.5E-10
+liveness-diamond,liveness,"r->{a,b}+idle{d1}",4,2,2,False,4239402,19007679,36,8,04min 52s,3.4E-6,8.6E-7
