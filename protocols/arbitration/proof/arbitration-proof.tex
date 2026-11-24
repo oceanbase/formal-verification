@@ -44,6 +44,61 @@ number \(p\).}
   \item[\emph{(b)}] \emph{Agreement. No other entry can be committed at \(i\).}
 \end{enumerate}
 
+\par\addvspace{\medskipamount}
+\noindent\fbox{\begin{minipage}{\dimexpr\columnwidth-2\fboxsep-2\fboxrule\relax}
+\small\setlength{\parskip}{2pt}\setlength{\parindent}{0pt}
+\textbf{Protocol summary.} One log stream; the premises below state each rule
+in full.
+
+\textbf{State.} Every voter durably stores \(\mathit{promise}\) and its
+installed configuration \(\mathit{config}\); a full replica also stores its
+redo \(\mathrm{log}\) and accepted ballot \(\acc\). The arbiter \(A\) stores
+no redo. \(P_C=S_C\cup\{A\}\).
+
+\textbf{Quorums.} Prepare quorum: majority of \(P_C\). Accept quorum:
+majority of \(S_C\). A configuration is confirmed by a majority of its own
+election membership.
+
+\textbf{R1 Prepare\((q,V)\).} Grant iff \(q>\mathit{promise}\) and
+\(V\ge\mathit{config}\); durably set \(\mathit{promise}:=q\); a full replica
+replies with \((\acc,\mathrm{log})\).
+
+\textbf{R2 Recovery.} Adopt the longest log with the highest \(\acc\) among
+full-replica replies in the prepare quorum; then propose only extensions of
+it, append-only.
+
+\textbf{R3 Accept\((t,P)\).} Grant iff \(t\ge\mathit{promise}\); Accept is
+the only transition that updates \((\acc,\mathrm{log})\).
+
+\textbf{R4 Confirmation.} After recovery in \(t\), confirm the inherited
+membership with a majority of its election voters before proposing any
+prefix or membership change. A voter confirms \(W\) in \(t\) iff
+\(t\ge\mathit{promise}\) and \(W\ge\mathit{config}\).
+
+\textbf{R5 Single-member change.} Add or remove one full replica. Before
+publishing \(M\), an accept quorum of \(S_M\) accepts the current prefix in
+\(t\); use \(M\)'s accept quorum, or publish another change, only after a
+majority of \(P_M\) confirms \(M\) in \(t\).
+
+\textbf{R6 Commit freeze.} From selecting the pre-change prefix until \(M\)
+is confirmed, the old configuration's commit point does not advance, and the
+change is never canceled to resume committing under the old configuration.
+
+\textbf{R7 Commit.} An entry commits in \(p\) once an accept quorum of the
+effective configuration's \(S\) has accepted the prefix through it in \(p\).
+
+\textbf{R8 Arbiter.} \(A\) issues no configurations and no redo; as election
+leader it only forwards its installed configuration, which receivers adopt
+without changing \(\mathit{promise}\), \(\acc\), or \(\mathrm{log}\).
+
+\emph{Dependencies.} Theorem~4.3 relies only on R1--R8 and the failure model;
+Theorem~4.4 additionally uses the progress assumptions of
+Section~\ref{sec:liveness}. Failure detection and degradation policy decide
+which replica is degraded and when; they affect liveness and redundancy, not
+safety.
+\end{minipage}}
+\par\addvspace{\medskipamount}
+
 \subsection*{Protocol premises}
 \begingroup
 \setlength{\parindent}{0pt}
